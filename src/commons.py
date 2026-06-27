@@ -22,8 +22,11 @@ class MQTopic(Enum):
     MD_TRADE = "md.trade"
 
 class MQClient(Protocol):
-    def subscribe(self, callback) -> None:
+    def subscribe(self, client_id: str, callback) -> None:
         ...
 
-    def publish(self, client_ids: list[str], message: Message) -> None:
+    def send(self, client_id: str, message: Message) -> None:
+        ...
+
+    def publish(self, message: Message) -> None:
         ...

@@ -4,33 +4,58 @@ from decimal import Decimal
 from .message import Message
 from commons import Side
 
-@dataclass(frozen=True)
+type PriceQty = tuple[Decimal, int]
+
+@dataclass(kw_only=True, frozen=True)
 class L1Quote(Message):
-    bid: tuple[int, int] | None
-    ask: tuple[int, int] | None
+    bid: PriceQty | None
+    ask: PriceQty | None
 
     @property
-    def midprice(self) -> Decimal | None:
+    def bid_px(self) -> Decimal | None:
+        if not self.bid:
+            return None
+        return self.bid[0]
+
+    @property
+    def bid_qty(self) -> int | None:
+        if not self.bid:
+            return None
+        return self.bid[1]
+
+    @property
+    def ask_px(self) -> Decimal | None:
+        if not self.ask:
+            return None
+        return self.ask[0]
+
+    @property
+    def ask_qty(self) -> int | None:
+        if not self.ask:
+            return None
+        return self.ask[1]
+
+    @property
+    def mid_px(self) -> Decimal | None:
         if self.bid is None or self.ask is None:
             return None
 
-        return (self.bid[0] + self.ask[0]) / 2
+        return (self.bid_px + self.ask_px) / 2
 
     def __str__(self) -> str:
-        return f"[{self.ts}] bid=${self.bid[0]} x{self.bid[1]} ask=${self.ask[0]} x{self.ask[1]}"
+        return f"[{self.ts}] bid=${self.bid_px} x{self.bid_qty} ask=${self.ask_px} x{self.ask_qty}"
 
-@dataclass(frozen=True)
+@dataclass(kw_only=True, frozen=True)
 class L2Snapshot(Message):
-    bids: list[tuple[int, int]]
-    asks: list[tuple[int, int]]
+    bids: list[PriceQty]
+    asks: list[PriceQty]
 
-@dataclass(frozen=True)
+@dataclass(kw_only=True, frozen=True)
 class L2Update(Message):
-    bids: list[tuple[int, int]]
-    asks: list[tuple[int, int]]
+    bids: list[PriceQty]
+    asks: list[PriceQty]
 
-@dataclass(frozen=True)
+@dataclass(kw_only=True, frozen=True)
 class Trade(Message):
-    side: Side
     px: int
     qty: int

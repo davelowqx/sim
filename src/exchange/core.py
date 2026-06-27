@@ -9,11 +9,10 @@ class Exchange:
     def __init__(self, mq_client: MQClient):
         self._logger = logging.getLogger("matching_engine")
         self._mq_client = mq_client
-        self._matching_engine = MatchingEngine()
+        self._matching_engine = MatchingEngine(mq_client)
 
         self._request_ids: set[str] = set()
         self._orders: dict[str, Order] = {}
-        self._client_ids : list[str] = []
 
     def run(self) -> None:
         self._logger.info("running")
@@ -23,6 +22,7 @@ class Exchange:
         if req.request_id in self._request_ids:
             self._logger.warning("duplicate request %s ignored", req.request_id)
             return 
+        self._request_ids.add(req.request_id)
 
         match req:
             case reqs.NewOrder():
@@ -33,8 +33,7 @@ class Exchange:
                 self._on_l2_snapshot_request(req)
 
     def _on_l2_snapshot_request(self, req: reqs.GetL2Snapshot) -> None:
-        l2_snapshot = self._matching_engine.get_l2_snapshot() 
-        self._mq_client.publish([req.client_id], l2_snapshot)
+        self._mq_client.publish([req.client_id], self._matching_engine.l2_snapshot)
     
     def _on_new_order_request(self, req: reqs.NewOrder) -> None:
         order = Order.from_new_order_request(req)

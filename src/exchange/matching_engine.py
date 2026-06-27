@@ -1,29 +1,86 @@
-from datetime import datetime
+from dataclasses import dataclass
+from decimal import Decimal
 from sortedcontainers import SortedDict
 
-from commons import Side, OrderType
-from messages import market_data
+from commons import Side, OrderType, MQClient
+from messages import market_data, events
 from .order import Order
 
+@dataclass
 class PriceLevel:
-    def __init__(self, order: Order):
-        self.agg_qty: int = order.unfilled_qty
-        self.first_order = order
-        self.last_order = order
+    _mq_client: MQClient
+    side: Side
+    px: Decimal
+    agg_qty: int = 0
+    _first_order: Order | None = None
+    _last_order: Order | None = None
     
-    def fill(self, incoming_order: Order):
-        curr_order = self.first_order
+    def match(self, incoming_order: Order):
+        curr_order = self._first_order
         while incoming_order.unfilled_qty > 0 and curr_order is not None:
             fill_qty = min(curr_order.unfilled_qty, incoming_order.unfilled_qty)
             self.agg_qty -= fill_qty
             incoming_order.fill(fill_qty)
             curr_order.fill(fill_qty)
+            self._mq_client.send(
+                incoming_order.client_id,
+                events.OrderExecuted(
+                    client_id=incoming_order.client_id,
+                    order_id=incoming_order.order_id,
+                    px=curr_order.limit_px,
+                    qty=fill_qty
+                )
+            )
+            self._mq_client.send(
+                curr_order.client_id,
+                events.OrderExecuted(
+                    client_id=curr_order.client_id,
+                    order_id=curr_order.order_id,
+                    px=curr_order.limit_px,
+                    qty=fill_qty
+                )
+            )
+            self._mq_client.publish(
+                market_data.Trade(
+                    px=curr_order.limit_px,
+                    qty=fill_qty
+                )
+            )
 
-            if curr_order.unfilled_qty == 0:
+            if curr_order.is_filled:
                 curr_order = curr_order.next_order
+        
+    def add_resting_order(self, order: Order) -> None:
+        prev_last_order = self._last_order
+        prev_last_order.next_order = order
+        self._last_order = order
+        order.prev_order = prev_last_order
+
+        self.agg_qty += order.unfilled_qty
+
+    def cancel(self, order: Order) -> None:
+        if self._first_order == order:
+            self._first_order = order.next_order
+        else:
+            order.prev_order.next_order = order.next_order
+        
+        if self._last_order == order:
+            self._last_order = order.prev_order
+        else:
+            order.next_order.prev_order = order.prev_order
+
+        self.agg_qty -= order.unfilled_qty
+
+        l2_update = (
+            market_data.L2Update(bids=[(self.px, self.agg_qty)], asks=[])
+            if self.side == Side.BUY
+            else market_data.L2Update(bids=[], asks=[(self.px, self.agg_qty)])
+        )
+        self.mq_client.publish(l2_update)
 
 class MatchingEngine:
-    def __init__(self):
+    def __init__(self, mq_client: MQClient):
+        self._mq_client = mq_client
         self._bids = SortedDict(key=lambda x: -x)
         self._asks = SortedDict()
     
@@ -33,7 +90,8 @@ class MatchingEngine:
     def _opp_side(self, side: Side) -> SortedDict:
         return self._bids if side == Side.SELL else self._asks
     
-    def get_l1_snapshot(self) -> market_data.L1Quote:
+    @property
+    def l1_quote(self) -> market_data.L1Quote:
         bid, ask = None, None
         if len(self._bids) != 0:
             px, level = self._bids.peekitem(0)
@@ -42,60 +100,53 @@ class MatchingEngine:
             px, level = self._asks.peekitem(0)
             ask = (px, level.agg_qty)
 
-        return market_data.L1Quote(
-            ts=datetime.now(),
-            bid=bid,
-            ask=ask
-        )
+        return market_data.L1Quote(bid=bid, ask=ask)
     
-    def get_l2_snapshot(self) -> market_data.L2Snapshot:
-        market_data.L2Snapshot(
-            ts=datetime.now(),
+    @property
+    def l2_snapshot(self) -> market_data.L2Snapshot:
+        return market_data.L2Snapshot(
             bids=[(px, level.agg_qty) for px, level in self._bids.items()],
             asks=[(px, level.agg_qty) for px, level in self._asks.items()],
         )
 
     def new(self, order: Order) -> None:
+        l2_update = market_data.L2Update(bids=[], asks=[])
+        inital_l1_quote = self.l1_quote
+
         levels = self._opp_side(order.side)
         while order.unfilled_qty > 0 and len(levels) > 0:
             px, level = levels.peekitem(0)
             if not order.can_match(px):
                 break
-            level.fill(order)
+            level.match(order)
+
             if level.agg_qty == 0:
                 del levels[px]
 
-        if order.is_filled:
-            return
-        
-        if order.order_type == OrderType.MARKET:
-            order.cancel() # cancel remaining qty
-            return
+            (l2_update.asks if order.is_buy else l2_update.bids).append(
+                (px, level.agg_qty)
+            )
 
-        levels = self._same_side(order.side)
-        if levels.get(order.price) is None:
-            levels[order.price] = PriceLevel(order)
-        else:
-            prev_last_order: Order = levels[order.price].last_order
-            prev_last_order.next_order = order
-            levels[order.price].last_order = order
-            order.prev_order = prev_last_order
+        if not order.is_filled and order.order_type == OrderType.LIMIT:
+            levels = self._same_side(order.side)
+            if levels.get(order.limit_px) is None:
+                levels[order.limit_px] = PriceLevel(
+                    _mq_client=self.mq_client,
+                    side=order.side, 
+                    px=order.limit_px
+                )
+            level = levels[order.limit_px]
+            level.add_resting_order(order)
+
+            (l2_update.bids if order.is_buy else l2_update.asks).append(
+                (px, level.agg_qty)
+            )
+        
+        if (curr_l1_quote := self.l1_quote) != inital_l1_quote:
+            self._mq_client.publish(curr_l1_quote)
+        self._mq_client.publish(l2_update)
 
     def cancel(self, order: Order) -> None:
-        level: PriceLevel = self._same_side(order.side)[order.price]
-        level.agg_qty -= order.unfilled_qty
-        if level.first_order == order:
-            level.first_order = order.next_order
-        
-        if level.last_order == order:
-            level.last_order = order.prev_order
-
-        if order.prev_order is not None:
-            order.prev_order.next_order = order.next_order
-        
-        if order.next_order is not None:
-            order.next_order.prev_order = order.prev_order
-        
-        order.next_order = None
-        order.prev_order = None
+        levels = self._same_side(order.side)
+        levels[order.limit_px].cancel(order)
         order.cancel()
