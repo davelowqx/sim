@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from .message import Message
-from commons import Side
 
 type PriceQty = tuple[Decimal, int]
 
@@ -43,19 +42,34 @@ class L1Quote(Message):
         return (self.bid_px + self.ask_px) / 2
 
     def __str__(self) -> str:
-        return f"[{self.ts}] bid=${self.bid_px} x{self.bid_qty} ask=${self.ask_px} x{self.ask_qty}"
+        bid_str = f"${self.bid_px}x{self.bid_qty}" if self.bid else "-"
+        ask_str = f"${self.ask_px}x{self.ask_qty}" if self.ask else "-"
+        return f"L1Quote: [{self.ts.time()}] bid={bid_str} ask={ask_str}"
 
 @dataclass(kw_only=True, frozen=True)
 class L2Snapshot(Message):
     bids: list[PriceQty]
     asks: list[PriceQty]
 
+    def __str__(self) -> str:
+        bids = ",".join([f"${px}x{qty}" for px, qty in self.bids])
+        asks = ",".join([f"${px}x{qty}" for px, qty in self.asks])
+        return f"[{self.ts.time()}] bids=[{bids}] asks=[{asks}]"
+
 @dataclass(kw_only=True, frozen=True)
 class L2Update(Message):
     bids: list[PriceQty]
     asks: list[PriceQty]
 
+    def __str__(self) -> str:
+        bids = ",".join([f"${px}x{qty}" for px, qty in self.bids])
+        asks = ",".join([f"${px}x{qty}" for px, qty in self.asks])
+        return f"L2Update: [{self.ts.time()}] bids=[{bids}] asks=[{asks}]"
+
 @dataclass(kw_only=True, frozen=True)
 class Trade(Message):
     px: int
     qty: int
+
+    def __str__(self) -> str:
+        return f"Trade: ${self.px}x{self.qty}"

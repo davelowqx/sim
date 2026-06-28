@@ -1,5 +1,4 @@
 import random
-from uuid import uuid4
 
 from .agent import Agent
 from messages import events, market_data

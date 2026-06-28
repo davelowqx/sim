@@ -35,6 +35,8 @@ class Agent(ABC):
                 self._on_order_cancelled(msg)
             case events.OrderCancelRejected():
                 self._on_order_cancel_rejected(msg)
+            case _:
+                print("no match")
     
     def send_market_order(self, side: Side, qty: int) -> Order:
         request_id = str(uuid4())
@@ -76,7 +78,7 @@ class Agent(ABC):
     def send_cancel_order_request(self, order_id: str) -> None:
         req = reqs.CancelOrder(
             client_id=self._client_id, 
-            request_id=uuid4(),
+            request_id=str(uuid4()),
             order_id=order_id
         )
         self._mq_client.publish(MQTopic.ORDER_ENTRY, req)

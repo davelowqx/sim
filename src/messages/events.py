@@ -24,7 +24,7 @@ class OrderExecuted(Event):
     qty: int
 
     def __str__(self) -> str:
-        return f"{self.order_id} ${self.px}x{self.qty}"
+        return f"OrderExecuted: {self.order_id} ${self.px}x{self.qty}"
 
 @dataclass(kw_only=True, frozen=True)
 class OrderRejected(Event):

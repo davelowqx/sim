@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
+from uuid import uuid4
 
 from commons import Side, OrderType
 from messages import reqs, events
@@ -27,7 +28,7 @@ class Order:
     @classmethod
     def from_new_order_request(cls, req: reqs.NewOrder) -> Order:
         return Order(
-            order_id=None,
+            order_id=str(uuid4()),
             client_id=req.client_id, 
             order_type=req.order_type,
             side=req.side,

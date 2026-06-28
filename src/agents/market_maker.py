@@ -1,5 +1,4 @@
 from decimal import Decimal
-from uuid import uuid4
 
 from .agent import Agent
 from .order import Order, OrderStatus

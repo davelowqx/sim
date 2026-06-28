@@ -6,9 +6,11 @@ from queue import Empty
 import threading
 from uuid import uuid4
 
-from src.exchange import Exchange
-from src.commons import Message, OrderType, Side
-from src.messages import reqs, events
+from exchange import Exchange
+from commons import Message, OrderType, Side
+from messages import reqs, events, market_data
+
+CLIENT_ID = "pytest"
 
 @dataclass
 class LocalMQ:
@@ -46,23 +48,130 @@ def queues():
 
     return client_to_exchange, exchange_to_client
 
-def test_new_order(queues):
+def test(queues):
     client_to_exchange, exchange_to_client = queues
-    request_id = str(uuid4())
-    client_id = "test1"
-    client_to_exchange.put(
+
+    dct = {
         reqs.NewOrder(
-            request_id=request_id,
-            client_id=client_id,
+            request_id=str(uuid4()),
+            client_id=CLIENT_ID,
             order_type=OrderType.LIMIT,
             side=Side.BUY,
             qty=10,
-            limit_px=Decimal(5),
-        )
-    )
+            limit_px=Decimal("2.99"),
+        ): [
+            lambda msg: isinstance(msg, events.OrderAccepted),
+            lambda msg: isinstance(msg, market_data.L1Quote),
+            lambda msg: isinstance(msg, market_data.L2Update)
+        ],
+        reqs.NewOrder(
+            request_id=str(uuid4()),
+            client_id=CLIENT_ID,
+            order_type=OrderType.LIMIT,
+            side=Side.BUY,
+            qty=15,
+            limit_px=Decimal("2.99"),
+        ): [
+            lambda msg: isinstance(msg, events.OrderAccepted),
+            lambda msg: isinstance(msg, market_data.L1Quote),
+            lambda msg: isinstance(msg, market_data.L2Update)
+        ],
+        reqs.NewOrder(
+            request_id=str(uuid4()),
+            client_id=CLIENT_ID,
+            order_type=OrderType.LIMIT,
+            side=Side.BUY,
+            qty=10,
+            limit_px=Decimal("2.98"),
+        ): [
+            lambda msg: isinstance(msg, events.OrderAccepted),
+            lambda msg: isinstance(msg, market_data.L2Update)
+        ],
+        reqs.NewOrder(
+            request_id=str(uuid4()),
+            client_id=CLIENT_ID,
+            order_type=OrderType.LIMIT,
+            side=Side.SELL,
+            qty=10,
+            limit_px=Decimal("3.01"),
+        ): [
+            lambda msg: isinstance(msg, events.OrderAccepted),
+            lambda msg: isinstance(msg, market_data.L1Quote),
+            lambda msg: isinstance(msg, market_data.L2Update)
+        ],
+        reqs.NewOrder(
+            request_id=str(uuid4()),
+            client_id=CLIENT_ID,
+            order_type=OrderType.LIMIT,
+            side=Side.SELL,
+            qty=10,
+            limit_px=Decimal("3.05"),
+        ): [
+            lambda msg: isinstance(msg, events.OrderAccepted),
+            lambda msg: isinstance(msg, market_data.L2Update)
+        ],
+        reqs.NewOrder(
+            request_id=str(uuid4()),
+            client_id=CLIENT_ID,
+            order_type=OrderType.MARKET,
+            side=Side.SELL,
+            qty=5,
+            limit_px=None
+        ): [
+            lambda msg: isinstance(msg, events.OrderAccepted),
+            lambda msg: isinstance(msg, events.OrderExecuted),
+            lambda msg: isinstance(msg, events.OrderExecuted),
+            lambda msg: isinstance(msg, market_data.Trade),
+            lambda msg: isinstance(msg, market_data.L1Quote),
+            lambda msg: isinstance(msg, market_data.L2Update)
+        ],
+        reqs.NewOrder(
+            request_id=str(uuid4()),
+            client_id=CLIENT_ID,
+            order_type=OrderType.MARKET,
+            side=Side.SELL,
+            qty=25,
+            limit_px=None
+        ): [
+            lambda msg : isinstance(msg, events.OrderAccepted),
+            lambda msg: isinstance(msg, events.OrderExecuted),
+            lambda msg: isinstance(msg, events.OrderExecuted),
+            lambda msg: isinstance(msg, market_data.Trade),
+            lambda msg: isinstance(msg, events.OrderExecuted),
+            lambda msg: isinstance(msg, events.OrderExecuted),
+            lambda msg: isinstance(msg, market_data.Trade),
+            lambda msg: isinstance(msg, events.OrderExecuted),
+            lambda msg: isinstance(msg, events.OrderExecuted),
+            lambda msg: isinstance(msg, market_data.Trade),
+            lambda msg : isinstance(msg, market_data.L1Quote),
+            lambda msg : isinstance(msg, market_data.L2Update)
+        ],
+        reqs.NewOrder(
+            request_id=str(uuid4()),
+            client_id=CLIENT_ID,
+            order_type=OrderType.MARKET,
+            side=Side.BUY,
+            qty=15,
+            limit_px=None
+        ): [
+            lambda msg : isinstance(msg, events.OrderAccepted),
+            lambda msg: isinstance(msg, events.OrderExecuted),
+            lambda msg: isinstance(msg, events.OrderExecuted),
+            lambda msg: isinstance(msg, market_data.Trade),
+            lambda msg: isinstance(msg, events.OrderExecuted),
+            lambda msg: isinstance(msg, events.OrderExecuted),
+            lambda msg: isinstance(msg, market_data.Trade),
+            lambda msg : isinstance(msg, market_data.L1Quote),
+            lambda msg : isinstance(msg, market_data.L2Update)
+        ]
+    }
 
-    res = exchange_to_client.get()
-    assert isinstance(res, events.OrderAccepted)
-    assert res.request_id == request_id
-    assert res.client_id == client_id
+    for req, callbacks in dct.items():
+        client_to_exchange.put(req)
+        for callback in callbacks:
+            msg = exchange_to_client.get()
+            print(msg)
+            assert callback(msg)
+
+
 

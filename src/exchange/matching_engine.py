@@ -8,12 +8,13 @@ from .order import Order
 
 @dataclass
 class PriceLevel:
-    _mq_client: MQClient
-    side: Side
-    px: Decimal
-    agg_qty: int = 0
-    _first_order: Order | None = None
-    _last_order: Order | None = None
+    def __init__(self, mq_client: MQClient, side: Side, px: Decimal):
+        self._mq_client = mq_client
+        self.side = side
+        self.px = px
+        self.agg_qty = 0
+        self._first_order : Order | None = None
+        self._last_order : Order | None = None
     
     def match(self, incoming_order: Order):
         curr_order = self._first_order
@@ -51,10 +52,14 @@ class PriceLevel:
                 curr_order = curr_order.next_order
         
     def add_resting_order(self, order: Order) -> None:
-        prev_last_order = self._last_order
-        prev_last_order.next_order = order
-        self._last_order = order
-        order.prev_order = prev_last_order
+        if not self._first_order and not self._last_order:
+            self._first_order = order
+            self._last_order = order
+        else:
+            prev_last_order = self._last_order
+            prev_last_order.next_order = order
+            self._last_order = order
+            order.prev_order = prev_last_order
 
         self.agg_qty += order.unfilled_qty
 
@@ -76,12 +81,20 @@ class PriceLevel:
             if self.side == Side.BUY
             else market_data.L2Update(bids=[], asks=[(self.px, self.agg_qty)])
         )
-        self.mq_client.publish(l2_update)
+        self._mq_client.publish(l2_update)
+    
+    def __str__(self) -> str:
+        qtys = []
+        curr_order = self._first_order
+        while curr_order is not None:
+            qtys.append(f"{curr_order.unfilled_qty}")
+            curr_order = curr_order.next_order
+        return f"${self.px}x{self.agg_qty}: [{','.join(qtys)}]"
 
 class MatchingEngine:
     def __init__(self, mq_client: MQClient):
         self._mq_client = mq_client
-        self._bids = SortedDict(key=lambda x: -x)
+        self._bids = SortedDict(lambda x: -x)
         self._asks = SortedDict()
     
     def _same_side(self, side: Side) -> SortedDict:
@@ -110,7 +123,7 @@ class MatchingEngine:
         )
 
     def new(self, order: Order) -> None:
-        l2_update = market_data.L2Update(bids=[], asks=[])
+        bids_updates, asks_updates = [], []
         inital_l1_quote = self.l1_quote
 
         levels = self._opp_side(order.side)
@@ -123,7 +136,7 @@ class MatchingEngine:
             if level.agg_qty == 0:
                 del levels[px]
 
-            (l2_update.asks if order.is_buy else l2_update.bids).append(
+            (asks_updates if order.is_buy else bids_updates).append(
                 (px, level.agg_qty)
             )
 
@@ -131,22 +144,36 @@ class MatchingEngine:
             levels = self._same_side(order.side)
             if levels.get(order.limit_px) is None:
                 levels[order.limit_px] = PriceLevel(
-                    _mq_client=self.mq_client,
+                    mq_client=self._mq_client,
                     side=order.side, 
                     px=order.limit_px
                 )
             level = levels[order.limit_px]
             level.add_resting_order(order)
 
-            (l2_update.bids if order.is_buy else l2_update.asks).append(
-                (px, level.agg_qty)
+            (bids_updates if order.is_buy else asks_updates).append(
+                (level.px, level.agg_qty)
             )
         
-        if (curr_l1_quote := self.l1_quote) != inital_l1_quote:
+        curr_l1_quote = self.l1_quote
+        if curr_l1_quote.bid != inital_l1_quote.bid or curr_l1_quote.ask != inital_l1_quote.ask:
+            print(curr_l1_quote)
             self._mq_client.publish(curr_l1_quote)
+        l2_update = market_data.L2Update(
+            bids=bids_updates,
+            asks=asks_updates,
+        )
         self._mq_client.publish(l2_update)
 
     def cancel(self, order: Order) -> None:
         levels = self._same_side(order.side)
         levels[order.limit_px].cancel(order)
         order.cancel()
+    
+    def print(self) -> None:
+        s = "=======================\n"
+        s += "\n".join(str(level) for level in reversed(self._asks.values()))
+        s += "\n- - - - - - - - - - - -\n"
+        s += "\n".join(str(level) for level in self._bids.values())
+        s += "\n======================="
+        print(s)
