@@ -1,21 +1,19 @@
 from abc import ABC, abstractmethod
-from decimal import Decimal
 import logging
-from uuid import uuid4
 
-from order import Order
-from messages import Message, events, market_data, reqs
-from commons import OrderType, Side, MQClient, MQTopic
+from messages import Message, events, market_data
+
+from .exchange_adapter import ExchangeAdapter
 
 class Agent(ABC):
-    def __init__(self, client_id: str, mq_client: MQClient):
+    def __init__(self, client_id: str, exchange_adapter: ExchangeAdapter):
         self._logger = logging.getLogger(client_id)
         self._client_id = client_id
-        self._mq_client = mq_client
+        self._exch = exchange_adapter
 
     def run(self):
         self._logger.info("running")
-        self._mq_client.subscribe(self._client_id, self._dispatch)
+        self._exch.subscribe(self._dispatch)
 
     def _dispatch(self, msg: Message):
         match msg:
@@ -36,83 +34,38 @@ class Agent(ABC):
             case events.OrderCancelRejected():
                 self._on_order_cancel_rejected(msg)
             case _:
-                print("no match")
+                self._logger.warning("no match for %s", type(msg))
     
-    def send_market_order(self, side: Side, qty: int) -> Order:
-        request_id = str(uuid4())
-        req = reqs.NewOrder(
-            self._client_id,
-            request_id=request_id,
-            order_type=OrderType.MARKET,
-            side=side,
-            qty=qty
-        )
-        self._mq_client.publish(MQTopic.ORDER_ENTRY, req)
-        return Order(
-            request_id=request_id,
-            order_type=OrderType.MARKET,
-            side=side,
-            limit_px=None,
-            qty=qty
-        )
-    
-    def send_limit_order(self, side: Side, qty: int, limit_px: Decimal) -> Order:
-        request_id = str(uuid4())
-        req = reqs.NewOrder(
-            self._client_id,
-            request_id=request_id,
-            order_type=OrderType.LIMIT,
-            side=side,
-            limit_px=limit_px,
-            qty=qty
-        )
-        self._mq_client.publish(MQTopic.ORDER_ENTRY, req)
-        return Order(
-            request_id=request_id,
-            order_type=OrderType.LIMIT,
-            side=side,
-            limit_px=limit_px,
-            qty=qty
-        )
-    
-    def send_cancel_order_request(self, order_id: str) -> None:
-        req = reqs.CancelOrder(
-            client_id=self._client_id, 
-            request_id=str(uuid4()),
-            order_id=order_id
-        )
-        self._mq_client.publish(MQTopic.ORDER_ENTRY, req)
-
     @abstractmethod
     def _on_l1_quote(self, msg: market_data.L1Quote):
-        print(msg)
+        self._logger.info(msg)
 
     @abstractmethod
     def _on_l2_update(self, msg: market_data.L2Update):
-        print(msg)
+        self._logger.info(msg)
 
     @abstractmethod
     def _on_trade(self, msg: market_data.Trade):
-        print(msg)
+        self._logger.info(msg)
 
     @abstractmethod
     def _on_order_accepted(self, ev: events.OrderAccepted):
-        print(ev)
+        self._logger.info(ev)
 
     @abstractmethod
     def _on_order_rejected(self, ev: events.OrderRejected):
-        print(ev)
+        self._logger.info(ev)
 
     @abstractmethod
     def _on_order_executed(self, ev: events.OrderExecuted):
-        print(ev)
+        self._logger.info(ev)
 
     @abstractmethod
     def _on_order_cancelled(self, ev: events.OrderCancelled):
-        print(ev)
+        self._logger.info(ev)
 
     @abstractmethod
     def _on_order_cancel_rejected(self, ev: events.OrderCancelRejected):
-        print(ev)
+        self._logger.info(ev)
 
     

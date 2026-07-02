@@ -2,14 +2,16 @@ from dataclasses import dataclass
 from decimal import Decimal
 from sortedcontainers import SortedDict
 
-from commons import Side, OrderType, MQClient
+from commons import Side, OrderType
 from messages import market_data, events
+
 from .order import Order
+from .event_bus import EventBus
 
 @dataclass
 class PriceLevel:
-    def __init__(self, mq_client: MQClient, side: Side, px: Decimal):
-        self._mq_client = mq_client
+    def __init__(self, event_bus: EventBus, side: Side, px: Decimal):
+        self._event_bus = event_bus
         self.side = side
         self.px = px
         self.agg_qty = 0
@@ -23,7 +25,7 @@ class PriceLevel:
             self.agg_qty -= fill_qty
             incoming_order.fill(fill_qty)
             curr_order.fill(fill_qty)
-            self._mq_client.send(
+            self._event_bus.send(
                 incoming_order.client_id,
                 events.OrderExecuted(
                     client_id=incoming_order.client_id,
@@ -32,7 +34,7 @@ class PriceLevel:
                     qty=fill_qty
                 )
             )
-            self._mq_client.send(
+            self._event_bus.send(
                 curr_order.client_id,
                 events.OrderExecuted(
                     client_id=curr_order.client_id,
@@ -41,7 +43,7 @@ class PriceLevel:
                     qty=fill_qty
                 )
             )
-            self._mq_client.publish(
+            self._event_bus.publish(
                 market_data.Trade(
                     px=curr_order.limit_px,
                     qty=fill_qty
@@ -81,7 +83,7 @@ class PriceLevel:
             if self.side == Side.BUY
             else market_data.L2Update(bids=[], asks=[(self.px, self.agg_qty)])
         )
-        self._mq_client.publish(l2_update)
+        self._event_bus.publish(l2_update)
     
     def __str__(self) -> str:
         qtys = []
@@ -92,8 +94,8 @@ class PriceLevel:
         return f"${self.px}x{self.agg_qty}: [{','.join(qtys)}]"
 
 class MatchingEngine:
-    def __init__(self, mq_client: MQClient):
-        self._mq_client = mq_client
+    def __init__(self, event_bus: EventBus):
+        self._event_bus = event_bus
         self._bids = SortedDict(lambda x: -x)
         self._asks = SortedDict()
     
@@ -144,7 +146,7 @@ class MatchingEngine:
             levels = self._same_side(order.side)
             if levels.get(order.limit_px) is None:
                 levels[order.limit_px] = PriceLevel(
-                    mq_client=self._mq_client,
+                    event_bus=self._event_bus,
                     side=order.side, 
                     px=order.limit_px
                 )
@@ -157,13 +159,12 @@ class MatchingEngine:
         
         curr_l1_quote = self.l1_quote
         if curr_l1_quote.bid != inital_l1_quote.bid or curr_l1_quote.ask != inital_l1_quote.ask:
-            print(curr_l1_quote)
-            self._mq_client.publish(curr_l1_quote)
+            self._event_bus.publish(curr_l1_quote)
         l2_update = market_data.L2Update(
             bids=bids_updates,
             asks=asks_updates,
         )
-        self._mq_client.publish(l2_update)
+        self._event_bus.publish(l2_update)
 
     def cancel(self, order: Order) -> None:
         levels = self._same_side(order.side)

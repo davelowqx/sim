@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from commons import RejectReason
+
 from .message import Message
 
 @dataclass(kw_only=True, frozen=True)

@@ -1,16 +1,18 @@
 from decimal import Decimal
 
-from .agent import Agent
-from .order import Order, OrderStatus
-from commons import Side, MQClient
+from commons import Side, OrderType
 from messages import events, market_data
 
-class MarketMaker(Agent):
-    def __init__(self, client_id: str, mq_client: MQClient):
-        super().__init__(client_id, mq_client)
+from .agent import Agent
+from .order import Order, OrderStatus
+from .exchange_adapter import ExchangeAdapter
 
-        self._pending_orders : dict[str, Order]
-        self._live_orders : dict[str, Order]
+class MarketMaker(Agent):
+    def __init__(self, client_id: str, exchange_adapter: ExchangeAdapter):
+        super().__init__(client_id, exchange_adapter)
+
+        self._pending_orders : dict[str, Order] = {}
+        self._live_orders : dict[str, Order] = {}
 
         self._curr_bid : Order | None = None
         self._curr_ask : Order | None = None
@@ -19,14 +21,29 @@ class MarketMaker(Agent):
         self._qty = 10
     
     def _on_l1_quote(self, msg: market_data.L1Quote):
-        ...
+        if msg.bid is None and msg.ask is None:
+            self._curr_bid = self._exch.submit(
+                order_type=OrderType.LIMIT,
+                side=Side.BUY, 
+                qty=1,
+                limit_px=Decimal("9.9")
+            )
+            self._pending_orders[self._curr_bid.request_id] = self._curr_bid
+            self._curr_ask = self._exch.submit(
+                order_type=OrderType.LIMIT,
+                side=Side.SELL, 
+                qty=1,
+                limit_px=Decimal("10.1")
+            )
+            self._pending_orders[self._curr_ask.request_id] = self._curr_ask
 
     def _on_l2_update(self, msg: market_data.L2Update):
         ...
     
     def _on_trade(self, msg: market_data.Trade):
         if self._curr_bid is None or self._curr_bid.is_terminal:
-            self._curr_bid = self.send_limit_order(
+            self._curr_bid = self._exch.submit(
+                order_type=OrderType.LIMIT,
                 side=Side.BUY,
                 qty=self._qty,
                 limit_px=msg.px - self._offset
@@ -34,11 +51,12 @@ class MarketMaker(Agent):
             self._pending_orders[self._curr_bid.request_id] = self._curr_bid
         elif (not self._curr_bid.is_pending and 
                 msg.px - self._offset != self._curr_bid.limit_px):
-            self.send_cancel_order_request(self._curr_bid.order_id)
+            self._exch.cancel(self._curr_bid.order_id)
             self._curr_bid.status = OrderStatus.PENDING_CANCEL
 
         if self._curr_ask is None or self._curr_ask.is_terminal:
-            self._curr_ask = self.send_limit_order(
+            self._curr_ask = self._exch.submit(
+                order_type=OrderType.LIMIT,
                 side=Side.SELL,
                 qty=self._qty,
                 limit_px=msg.px + self._offset
@@ -46,7 +64,7 @@ class MarketMaker(Agent):
             self._pending_orders[self._curr_ask.request_id] = self._curr_ask
         elif (not self._curr_ask.is_pending and 
                 msg.px + self._offset != self._curr_ask.limit_px):
-            self.send_cancel_order_request(self._curr_ask.order_id)
+            self._exch.cancel(self._curr_ask.order_id)
             self._curr_ask.status = OrderStatus.PENDING_CANCEL
 
     def _on_order_accepted(self, ev: events.OrderAccepted):

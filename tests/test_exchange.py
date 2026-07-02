@@ -1,47 +1,29 @@
-from dataclasses import dataclass
 from decimal import Decimal
 from multiprocessing import Queue
 import pytest
-from queue import Empty
 import threading
 from uuid import uuid4
 
-from exchange import Exchange
-from commons import Message, OrderType, Side
+from exchange import Exchange, EventBus
+from commons import OrderType, Side
 from messages import reqs, events, market_data
 
 CLIENT_ID = "pytest"
 
-@dataclass
-class LocalMQ:
-    send_q: Queue
-    rcv_q: Queue
-    
-    def subscribe(self, client_id: str, callback) -> None:
-        while True: 
-            try:
-                msg = self.rcv_q.get(timeout=0.1) 
-                callback(msg)
-            except Empty:
-                continue
-
-    def send(self, client_id: str, message: Message) -> None:
-        self.send_q.put(message)
-
-    def publish(self, message: Message) -> None:
-        self.send_q.put(message)
-
-def run_exchange(send_q: Queue, rcv_q: Queue):
-    exch = Exchange(LocalMQ(send_q, rcv_q))
+def run_exchange(event_bus: EventBus):
+    exch = Exchange(event_bus)
     exch.run()
 
 @pytest.fixture
 def queues():
-    client_to_exchange = Queue()
-    exchange_to_client = Queue()
+    client_to_exchange, exchange_to_client = Queue(), Queue()
+    event_bus = EventBus(
+        send_qs={CLIENT_ID: exchange_to_client}, 
+        rcv_q=client_to_exchange
+    )
     t = threading.Thread(
         target=run_exchange, 
-        args=(exchange_to_client, client_to_exchange), 
+        args=(event_bus,), 
         daemon=True
     )
     t.start()
