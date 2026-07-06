@@ -10,11 +10,8 @@ class EventBus:
     
     def subscribe(self, callback) -> None:
         while True: 
-            try:
-                msg = self._rcv_q.get(timeout=0.1) 
-                callback(msg)
-            except Empty:
-                continue
+            msg = self._rcv_q.get() 
+            callback(msg)
 
     def send(self, client_id: str, message: Message) -> None:
         self._send_qs[client_id].put(message)

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Exchange</title>
+    <style>
+        body { background: #0d1117; margin: 0; padding: 20px; }
+        #chart { width: 100vw; height: 100vh; }
+    </style>
+</head>
+<body>
+    <div id="chart"></div>
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <script>
+        const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+            layout: { background: { color: '#0d1117' }, textColor: '#e6edf3' },
+            grid: { vertLines: { color: '#30363d' }, horzLines: { color: '#30363d' } },
+            width: document.getElementById('chart').clientWidth,
+            height: document.getElementById('chart').clientHeight,
+        });
+
+        const GREEN = "#3fb950"
+        const RED = "#f85149"
+        const M_GREEN = "#87ceaa"
+        const M_RED = "#ff8c7a"
+
+        const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
+            upColor: GREEN,
+            downColor: RED,
+            borderUpColor: GREEN,
+            borderDownColor: RED,
+            wickUpColor: GREEN,
+            wickDownColor: RED,
+            priceScaleId: "price",
+        });
+
+        const volumeSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
+            color: '#58a6ff',
+            priceFormat: { type: 'volume' },
+            priceScaleId: 'volume',  // separate price scale
+        });
+
+        chart.priceScale('price').applyOptions({
+            scaleMargins: { top: 0.1, bottom: 0.3 },
+            autoScale: true,
+            visible: true
+        });
+
+        chart.priceScale('volume').applyOptions({
+            scaleMargins: { top: 0.8, bottom: 0 },
+            visible: false
+        });
+
+        let bidLine = null;
+        let askLine = null;
+        let currentCandle = null;
+        let currentVolume = 0;
+
+        function getIntervalTime() {
+            const now = Math.floor(Date.now() / 1000);
+            return now - (now % 15);
+        }
+
+        const ws = new WebSocket('ws://localhost:8000/ws');
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type == "trade") {
+                const time = getIntervalTime();
+                const price = parseFloat(data.px);
+
+                if (!currentCandle || currentCandle.time !== time) {
+                    currentCandle = { time, open: price, high: price, low: price, close: price };
+                    currentVolume = data.qty;
+                } else {
+                    currentCandle.high = Math.max(currentCandle.high, price);
+                    currentCandle.low = Math.min(currentCandle.low, price);
+                    currentCandle.close = price;
+                    currentVolume += data.qty;
+                }
+
+                candleSeries.update(currentCandle);
+                volumeSeries.update({ time, value: currentVolume });
+            } else if (data.type == "bbo") {
+                if (data.bid_px) {
+                    if (bidLine) candleSeries.removePriceLine(bidLine);
+                    bidLine = candleSeries.createPriceLine({
+                        price: parseFloat(data.bid_px),
+                        color: M_GREEN,
+                        lineWidth: 1,
+                        lineStyle: LightweightCharts.LineStyle.Dashed,
+                        axisLabelVisible: true,
+                        title: 'bid',
+                    });
+                }
+                if (data.ask_px) {
+                    if (askLine) candleSeries.removePriceLine(askLine);
+                    askLine = candleSeries.createPriceLine({
+                        price: parseFloat(data.ask_px),
+                        color: M_RED,
+                        lineWidth: 1,
+                        lineStyle: LightweightCharts.LineStyle.Dashed,
+                        axisLabelVisible: true,
+                        title: 'ask',
+                    });
+                }
+            }
+        };
+
+        window.addEventListener('resize', () => {
+            chart.applyOptions({ 
+                width: document.getElementById('chart').clientWidth,
+                height: document.getElementById('chart').clientHeight 
+            });
+        });
+    </script>
+</body>
+</html>

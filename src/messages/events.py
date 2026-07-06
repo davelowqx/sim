@@ -14,9 +14,15 @@ class OrderAccepted(Event):
     request_id: str
     order_id: str
 
+    def __str__(self) -> str:
+        return f"OrderAccepted: {self.order_id}"
+
 @dataclass(kw_only=True, frozen=True)
 class OrderCancelled(Event):
     order_id: str
+
+    def __str__(self) -> str:
+        return f"OrderCancelled: {self.order_id}"
 
 @dataclass(kw_only=True, frozen=True)
 class OrderExecuted(Event):
@@ -37,3 +43,6 @@ class OrderCancelRejected(Event):
     request_id: str
     order_id: str
     reason: RejectReason
+
+    def __str__(self) -> str:
+        return f"OrderCancelRejected: {self.order_id} ${self.reason}"

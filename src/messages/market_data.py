@@ -68,7 +68,7 @@ class L2Update(Message):
 
 @dataclass(kw_only=True, frozen=True)
 class Trade(Message):
-    px: int
+    px: Decimal
     qty: int
 
     def __str__(self) -> str:

@@ -15,10 +15,10 @@ class Exchange:
 
         self._request_ids: set[str] = set()
         self._orders: dict[str, Order] = {}
+        self._seq_num = 0
 
     def run(self) -> None:
         self._logger.info("running")
-        self._event_bus.publish(self._matching_engine.l1_quote)
         self._event_bus.subscribe(self._dispatch)
     
     def _dispatch(self, req: reqs.Request):
@@ -41,7 +41,8 @@ class Exchange:
         self._event_bus.send(req.client_id, self._matching_engine.l2_snapshot)
     
     def _on_new_order_request(self, req: reqs.NewOrder) -> None:
-        order = Order.from_new_order_request(req)
+        order = Order.from_new_order_request(req, f"{self._seq_num:03d}")
+        self._seq_num = (self._seq_num + 1) % 1000
         self._event_bus.send(
             order.client_id, 
             events.OrderAccepted(
@@ -51,6 +52,7 @@ class Exchange:
             )
         )
         self._orders[order.order_id] = order
+        self._logger.info("matching_engine.new() %s", order)
         self._matching_engine.new(order)
         self._matching_engine.print()
 
@@ -69,7 +71,7 @@ class Exchange:
             return 
         
         if not order.is_live or order.client_id != req.client_id:
-            self._logger.warning("order cancel rejected: illegal operation")
+            self._logger.warning("order cancel rejected: order %s is %s", req.order_id, order.status.value)
             msg = events.OrderCancelRejected(
                 ts=req.ts,
                 client_id=req.client_id, 
@@ -80,5 +82,6 @@ class Exchange:
             self._event_bus.send(req.client_id, msg)
             return 
 
+        self._logger.info("matching_engine.cancel() %s", order)
         self._matching_engine.cancel(order)
         self._matching_engine.print()

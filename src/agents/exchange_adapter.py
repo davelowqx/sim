@@ -17,10 +17,10 @@ class ExchangeAdapter:
     def subscribe(self, callback) -> None:
         while True: 
             try:
-                msg = self._rcv_q.get(timeout=0.1) 
+                msg = self._rcv_q.get(timeout=1) 
                 callback(msg)
             except Empty:
-                continue
+                callback(None)
 
     def submit(self, order_type: OrderType, side: Side, qty: int, limit_px: Decimal | None) -> Order:
         request_id = str(uuid4())

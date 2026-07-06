@@ -19,39 +19,48 @@ class PriceLevel:
         self._last_order : Order | None = None
     
     def match(self, incoming_order: Order):
-        curr_order = self._first_order
-        while incoming_order.unfilled_qty > 0 and curr_order is not None:
-            fill_qty = min(curr_order.unfilled_qty, incoming_order.unfilled_qty)
+        while incoming_order.unfilled_qty > 0 and self._first_order is not None:
+            if incoming_order.client_id == self._first_order.client_id:
+                incoming_order.cancel()
+                self._event_bus.send(
+                    incoming_order.client_id,
+                    events.OrderCancelled(
+                        client_id=incoming_order.client_id,
+                        order_id=incoming_order.order_id,
+                    )
+                )
+                return
+            fill_qty = min(self._first_order.unfilled_qty, incoming_order.unfilled_qty)
             self.agg_qty -= fill_qty
             incoming_order.fill(fill_qty)
-            curr_order.fill(fill_qty)
+            self._first_order.fill(fill_qty)
             self._event_bus.send(
                 incoming_order.client_id,
                 events.OrderExecuted(
                     client_id=incoming_order.client_id,
                     order_id=incoming_order.order_id,
-                    px=curr_order.limit_px,
+                    px=self.px,
                     qty=fill_qty
                 )
             )
             self._event_bus.send(
-                curr_order.client_id,
+                self._first_order.client_id,
                 events.OrderExecuted(
-                    client_id=curr_order.client_id,
-                    order_id=curr_order.order_id,
-                    px=curr_order.limit_px,
+                    client_id=self._first_order.client_id,
+                    order_id=self._first_order.order_id,
+                    px=self.px,
                     qty=fill_qty
                 )
             )
             self._event_bus.publish(
                 market_data.Trade(
-                    px=curr_order.limit_px,
+                    px=self.px,
                     qty=fill_qty
                 )
             )
 
-            if curr_order.is_filled:
-                curr_order = curr_order.next_order
+            if self._first_order.is_filled:
+                self._first_order = self._first_order.next_order
         
     def add_resting_order(self, order: Order) -> None:
         if not self._first_order and not self._last_order:
@@ -86,12 +95,12 @@ class PriceLevel:
         self._event_bus.publish(l2_update)
     
     def __str__(self) -> str:
-        qtys = []
-        curr_order = self._first_order
-        while curr_order is not None:
-            qtys.append(f"{curr_order.unfilled_qty}")
-            curr_order = curr_order.next_order
-        return f"${self.px}x{self.agg_qty}: [{','.join(qtys)}]"
+        lst = []
+        order = self._first_order
+        while order is not None:
+            lst.append(f"[{order.client_id}-{order.order_id}]:{order.unfilled_qty}")
+            order = order.next_order
+        return f"${self.px}x{self.agg_qty}: [{', '.join(lst)}]"
 
 class MatchingEngine:
     def __init__(self, event_bus: EventBus):
@@ -129,7 +138,7 @@ class MatchingEngine:
         inital_l1_quote = self.l1_quote
 
         levels = self._opp_side(order.side)
-        while order.unfilled_qty > 0 and len(levels) > 0:
+        while order.is_live and order.unfilled_qty > 0 and len(levels) > 0:
             px, level = levels.peekitem(0)
             if not order.can_match(px):
                 break
@@ -142,7 +151,7 @@ class MatchingEngine:
                 (px, level.agg_qty)
             )
 
-        if not order.is_filled and order.order_type == OrderType.LIMIT:
+        if order.order_type == OrderType.LIMIT and not order.is_terminal:
             levels = self._same_side(order.side)
             if levels.get(order.limit_px) is None:
                 levels[order.limit_px] = PriceLevel(
@@ -168,13 +177,23 @@ class MatchingEngine:
 
     def cancel(self, order: Order) -> None:
         levels = self._same_side(order.side)
-        levels[order.limit_px].cancel(order)
+        level: PriceLevel = levels[order.limit_px]
+        level.cancel(order)
+        if level.agg_qty == 0:
+            del levels[order.limit_px]
         order.cancel()
+
+        msg = events.OrderCancelled(
+            client_id=order.client_id, 
+            order_id=order.order_id
+        )
+        self._event_bus.send(order.client_id, msg)
+
     
     def print(self) -> None:
         s = "=======================\n"
         s += "\n".join(str(level) for level in reversed(self._asks.values()))
         s += "\n- - - - - - - - - - - -\n"
         s += "\n".join(str(level) for level in self._bids.values())
-        s += "\n======================="
+        s += "\n=======================\n"
         print(s)

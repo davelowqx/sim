@@ -52,18 +52,18 @@ class Order:
         self.status = OrderStatus.REJECTED
     
     def fill(self, ev: events.OrderExecuted) -> None:
-        assert self.status == OrderStatus.LIVE
         assert ev.order_id == self.order_id
+        assert self.status in { OrderStatus.LIVE, OrderStatus.PENDING_CANCEL }
         self.filled_qty += ev.qty
         if self.filled_qty == self.qty:
             self.status = OrderStatus.FILLED
 
     def cancel(self, ev: events.OrderCancelled) -> None:
         assert ev.order_id == self.order_id
-        assert self.status == OrderStatus.LIVE
+        assert self.status in { OrderStatus.LIVE, OrderStatus.PENDING_CANCEL, OrderStatus.FILLED }
         self.status = OrderStatus.CANCELLED
 
     def __str__(self) -> str:
-        return f"[{self.order_id}] {self.order_type.value} {self.side.value} {self.filled_qty}/{self.qty} : {self.status}"
+        return f"[{self.order_id}] {self.side.value}{f' ${self.limit_px}' if self.limit_px else ''} {self.filled_qty}/{self.qty} : {self.status.value}"
 
 

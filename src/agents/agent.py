@@ -33,28 +33,30 @@ class Agent(ABC):
                 self._on_order_cancelled(msg)
             case events.OrderCancelRejected():
                 self._on_order_cancel_rejected(msg)
+            case None:
+                self._on_empty()
             case _:
                 self._logger.warning("no match for %s", type(msg))
     
     @abstractmethod
     def _on_l1_quote(self, msg: market_data.L1Quote):
-        self._logger.info(msg)
+        self._logger.debug(msg)
 
     @abstractmethod
     def _on_l2_update(self, msg: market_data.L2Update):
-        self._logger.info(msg)
+        self._logger.debug(msg)
 
     @abstractmethod
     def _on_trade(self, msg: market_data.Trade):
-        self._logger.info(msg)
+        self._logger.debug(msg)
 
     @abstractmethod
     def _on_order_accepted(self, ev: events.OrderAccepted):
-        self._logger.info(ev)
+        self._logger.debug(ev)
 
     @abstractmethod
     def _on_order_rejected(self, ev: events.OrderRejected):
-        self._logger.info(ev)
+        self._logger.warning(ev)
 
     @abstractmethod
     def _on_order_executed(self, ev: events.OrderExecuted):
@@ -66,6 +68,10 @@ class Agent(ABC):
 
     @abstractmethod
     def _on_order_cancel_rejected(self, ev: events.OrderCancelRejected):
-        self._logger.info(ev)
+        self._logger.warning(ev)
+    
+    @abstractmethod
+    def _on_empty(self):
+        ...
 
     

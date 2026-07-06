@@ -26,9 +26,9 @@ class Order:
     prev_order: Order | None = None
 
     @classmethod
-    def from_new_order_request(cls, req: reqs.NewOrder) -> Order:
+    def from_new_order_request(cls, req: reqs.NewOrder, order_id: str) -> Order:
         return Order(
-            order_id=str(uuid4()),
+            order_id=order_id,
             client_id=req.client_id, 
             order_type=req.order_type,
             side=req.side,
@@ -43,6 +43,10 @@ class Order:
     @property
     def is_filled(self) -> bool:
         return self.status == OrderStatus.FILLED
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.status in { OrderStatus.FILLED, OrderStatus.CANCELLED }
     
     @property
     def unfilled_qty(self) -> int:
@@ -81,4 +85,4 @@ class Order:
         self.status = OrderStatus.CANCELLED
     
     def __str__(self) -> str:
-        return f"[{self.order_id}] {self.order_type.value} {self.side.value} {self.filled_qty}/{self.qty} : {self.status}"
+        return f"[{self.client_id}-{self.order_id}] {self.side.value}{f' ${self.limit_px}' if self.limit_px else ''} {self.filled_qty}/{self.qty} : {self.status.value}"
