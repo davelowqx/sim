@@ -61,7 +61,7 @@
             return now - (now % 15);
         }
 
-        const ws = new WebSocket('ws://localhost:80/ws');
+        const ws = new WebSocket(`ws://${window.location.host}/ws`);
 
         ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
