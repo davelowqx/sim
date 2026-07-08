@@ -1,0 +1,10 @@
+[Unit]
+After=network.target
+
+[Service]
+WorkingDirectory=~/sim
+ExecStart=~/sim/venv/bin/python src/main.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
