@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
-from uuid import uuid4
 
 from commons import Side, OrderType
 from messages import reqs, events
@@ -22,11 +21,11 @@ class Order:
     filled_qty: int = 0
     status: OrderStatus = OrderStatus.LIVE
 
-    next_order: Order | None = None
-    prev_order: Order | None = None
+    next_order: "Order | None" = None
+    prev_order: "Order | None" = None
 
     @classmethod
-    def from_new_order_request(cls, req: reqs.NewOrder, order_id: str) -> Order:
+    def from_new_order_request(cls, req: reqs.NewOrder, order_id: str) -> "Order":
         return Order(
             order_id=order_id,
             client_id=req.client_id, 
