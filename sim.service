@@ -2,8 +2,8 @@
 After=network.target
 
 [Service]
-WorkingDirectory=~/sim
-ExecStart=~/sim/venv/bin/python src/main.py
+WorkingDirectory=/root/sim
+ExecStart=/root/sim/.venv/bin/python3 src/main.py
 Restart=always
 
 [Install]
