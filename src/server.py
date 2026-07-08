@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from queue import Empty
 from multiprocessing import Queue, Event
 import uvicorn
@@ -44,8 +48,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/")
+async def index():
+    return FileResponse("static/index.html")
+
 @app.websocket("/ws")
-async def handler(ws: WebSocket) -> None:
+async def ws_handler(ws: WebSocket) -> None:
     global client
     await ws.accept()
     client = ws
@@ -59,8 +69,8 @@ async def handler(ws: WebSocket) -> None:
         stop_event.set()
         client = None
 
-async def f():
-    server = uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=8000))
+async def main():
+    server = uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=80))
     await server.serve()
 
 def run_server(_start_event: Event, _stop_event: Event, _in_q: Queue) -> None:
@@ -68,4 +78,4 @@ def run_server(_start_event: Event, _stop_event: Event, _in_q: Queue) -> None:
     global stop_event
     global in_q
     start_event, stop_event, in_q = _start_event, _stop_event, _in_q
-    asyncio.run(f())
+    asyncio.run(main())
