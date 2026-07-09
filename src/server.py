@@ -10,8 +10,8 @@ import uvicorn
 from messages import market_data
 
 clients: set[WebSocket] = set()
-out_q: Queue | None = None
-in_q: Queue | None = None
+out_q: "Queue | None" = None
+in_q: "Queue | None" = None
 trades = []
 
 async def broadcast(msg: dict) -> None:
