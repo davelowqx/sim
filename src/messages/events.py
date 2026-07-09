@@ -1,8 +1,6 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
-from commons import RejectReason
-
 from .message import Message
 
 @dataclass(kw_only=True, frozen=True)
@@ -36,13 +34,14 @@ class OrderExecuted(Event):
 @dataclass(kw_only=True, frozen=True)
 class OrderRejected(Event):
     request_id: str
-    reason: RejectReason
+
+    def __str__(self) -> str:
+        return f"OrderRejected: {self.request_id}"
 
 @dataclass(kw_only=True, frozen=True)
 class OrderCancelRejected(Event):
     request_id: str
     order_id: str
-    reason: RejectReason
 
     def __str__(self) -> str:
-        return f"OrderCancelRejected: {self.order_id} ${self.reason}"
+        return f"OrderCancelRejected: {self.order_id}"

@@ -7,7 +7,3 @@ class Side(Enum):
 class OrderType(Enum):
     LIMIT = "LIMIT"
     MARKET = "MARKET"
-
-class RejectReason(Enum):
-    ILLEGAL_OP = "ILLEGAL_OP"
-    NOT_FOUND = "NOT_FOUND"

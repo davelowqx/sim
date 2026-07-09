@@ -41,6 +41,8 @@ class NoiseTrader(Agent):
     def _buy_probability(self) -> float:
         if self._last_trade is None:
             return 0.5
+        if self._last_trade.px < 1:
+            return 1
         deviation = float((self._last_trade.px - Decimal("10")) / Decimal("10"))
         return 1 / (1 + math.exp(deviation))
     

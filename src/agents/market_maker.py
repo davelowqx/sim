@@ -31,11 +31,11 @@ class MarketMaker(Agent):
                 return order
         return None
 
-    def _new_quote(self, side: Side, limit_px: Decimal):
+    def _new_quote(self, side: Side, limit_px: Decimal, qty: int):
         order = self._exch.submit(
             order_type=OrderType.LIMIT,
             side=side, 
-            qty=10,
+            qty=qty,
             limit_px=limit_px,
         )
         self._orders[order.request_id] = order
@@ -100,8 +100,10 @@ class MarketMaker(Agent):
     def _on_empty(self):
         self._logger.info("delta=%s, orders=%s", self._delta, [str(order) for order in self._orders.values()])
         if self._curr_bid is None or self._curr_bid.is_terminal:
-            self._new_quote(Side.BUY, self._target_bid_px())
+            qty = abs(self._delta) if self._delta < 0 else 10
+            self._new_quote(Side.BUY, self._target_bid_px(), qty)
         if self._curr_ask is None or self._curr_ask.is_terminal:
-            self._new_quote(Side.SELL, self._target_ask_px())
+            qty = self._delta if self._delta > 0 else 10
+            self._new_quote(Side.SELL, self._target_ask_px(), qty)
 
     

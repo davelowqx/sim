@@ -1,7 +1,7 @@
 import logging
 
 from messages import events, reqs 
-from commons import RejectReason
+from commons import OrderType
 
 from .event_bus import EventBus
 from .matching_engine import MatchingEngine
@@ -42,6 +42,15 @@ class Exchange:
         self._event_bus.send(req.client_id, self._matching_engine.l2_snapshot)
     
     def _on_new_order_request(self, req: reqs.NewOrder) -> None:
+        if req.order_type == OrderType.LIMIT and req.limit_px <= 0:
+            self._event_bus.send(
+                req.client_id,
+                events.OrderRejected(
+                    request_id=req.request_id,
+                    client_id=req.client_id,
+                )
+            )
+            return
         order = Order.from_new_order_request(req, f"{self._seq_num:05d}")
         self._seq_num = (self._seq_num + 1) % 1000
         self._event_bus.send(
@@ -66,7 +75,6 @@ class Exchange:
                 client_id=req.client_id, 
                 request_id=req.request_id, 
                 order_id=req.order_id,
-                reason=RejectReason.NOT_FOUND
             )
             self._event_bus.send(req.client_id, msg)
             return 
@@ -78,7 +86,6 @@ class Exchange:
                 client_id=req.client_id, 
                 request_id=req.request_id, 
                 order_id=req.order_id,
-                reason=RejectReason.ILLEGAL_OP
             )
             self._event_bus.send(req.client_id, msg)
             return 

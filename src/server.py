@@ -1,12 +1,10 @@
-from __future__ import annotations
-
 import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from queue import Empty
-from multiprocessing import Queue, Event
+from multiprocessing import Queue
 import uvicorn
 
 from messages import market_data
@@ -47,6 +45,12 @@ async def market_data_publisher() -> None:
                         "ts": int(msg.ts.timestamp()),
                         "bid_px": str(msg.bid_px) if msg.bid_px else None,
                         "ask_px": str(msg.ask_px) if msg.ask_px else None
+                    })
+                case market_data.L2Update():
+                    await broadcast({
+                        "type": "book_update",
+                        "bids": [[str(px), qty] for px, qty in msg.bids],
+                        "asks": [[str(px), qty] for px, qty in msg.asks] 
                     })
         except Empty:
             pass

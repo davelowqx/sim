@@ -9,15 +9,42 @@
     </style>
 </head>
 <body>
-    <button onclick="restart()" style="position: fixed; top: 20px; left: 20px; z-index: 1000;">
-        Restart Simulation
-    </button>
+    <div style="position: fixed; top: 20px; right: 20px; z-index: 1000;">
+        <button 
+        onclick="restart()" 
+        style="background: black;
+                color: #e6edf3;
+                border: 1px solid #444;
+                padding: 5px 10px;
+                font-family: monospace;
+                font-size: 13px;
+                cursor: pointer;
+                border-radius: 4px;
+                transition: border-color 0.2s, color 0.2s;" 
+        onmouseover="this.style.borderColor='#58a6ff'; this.style.color='#58a6ff';"
+        onmouseout="this.style.borderColor='#444'; this.style.color='#e6edf3';">
+            Restart Simulation
+        </button>
+    </div>
+    <div style="position: fixed; top: 20px; left: 20px; z-index: 1000;">
+        <div id="orderbook" style="font-family: monospace; font-size: 13px; width: 150px; padding: 20px; background-color: rgba(0, 0, 0, 0.5);">
+            <div style="color: white">Orderbook</div>
+            <div id="asks" style="height: 50px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end;"></div>
+            <hr style="border: none; border-top: 1px solid #444; margin: 4px 0;">
+            <div id="bids" style="height: 50px; overflow: hidden;"></div>
+        </div>
+    </div>
     <div style="display: flex; justify-content: center; align-items: center; padding: 20px; height: 100vh; box-sizing: border-box;">
         <div id="chart"></div>
     </div>
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
     <script>
         const tzOffset = new Date().getTimezoneOffset() * -60;
+
+        const GREEN = "#3fb950"
+        const RED = "#f85149"
+        const M_GREEN = "#87ceaa"
+        const M_RED = "#ff8c7a"
 
         const chart = LightweightCharts.createChart(document.getElementById('chart'), {
             layout: { background: { color: '#0d1117' }, textColor: '#e6edf3' },
@@ -31,11 +58,6 @@
             },
         });
 
-        const GREEN = "#3fb950"
-        const RED = "#f85149"
-        const M_GREEN = "#87ceaa"
-        const M_RED = "#ff8c7a"
-
         const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
             upColor: GREEN,
             downColor: RED,
@@ -43,16 +65,16 @@
             borderDownColor: RED,
             wickUpColor: GREEN,
             wickDownColor: RED,
-            priceScaleId: "price",
+            priceScaleId: "right",
         });
 
         const volumeSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
             color: '#58a6ff',
             priceFormat: { type: 'volume' },
-            priceScaleId: 'volume',  // separate price scale
+            priceScaleId: 'volume',  
         });
 
-        chart.priceScale('price').applyOptions({
+        chart.priceScale('right').applyOptions({
             scaleMargins: { top: 0.1, bottom: 0.3 },
             autoScale: true,
             visible: true
@@ -67,6 +89,31 @@
         let askLine = null;
         let currCandle = null;
         let currVol = 0;
+        const book = { bids: {}, asks: {} };
+
+        function renderBook() {
+            bids = { ...book.bids };
+            asks = { ...book.asks };
+            const bidPrices = Object.keys(bids).map(Number).sort((a, b) => b - a);
+            const askPrices = Object.keys(asks).map(Number).sort((a, b) => b - a);
+
+            document.getElementById('asks').innerHTML = askPrices.map(px =>
+                asks[px] ? 
+                `<div style="display:flex; justify-content:space-between; color:#f85149;">
+                    <span>${px}</span><span>${asks[px]}</span>
+                </div>` : ''
+            ).join('');
+
+            document.getElementById('bids').innerHTML = bidPrices.map(px =>
+                bids[px] ? 
+                `<div style="display:flex; justify-content:space-between; color:#3fb950;">
+                    <span>${px}</span><span>${bids[px]}</span>
+                </div>` : ''
+            ).join('');
+        }
+
+        setInterval(renderBook, 100);
+
 
         async function restart() {
             await fetch('/restart', { method: 'POST' });
@@ -76,6 +123,8 @@
             askLine = null;
             currCandle = null;
             currVol = 0;
+            book.bids = [];
+            book.asks = [];
         }
 
 
@@ -123,6 +172,18 @@
             }
         }
 
+        function onBookUpdate(data) {
+            data.bids.forEach(([price, qty]) => {
+                if (qty == 0) delete book.bids[price];
+                else book.bids[price] = qty;
+            });
+            data.asks.forEach(([price, qty]) => {
+                if (qty == 0) delete book.asks[price];
+                else book.asks[price] = qty;
+            });
+        }
+
+
         async function fetchTrades() {
             const res = await fetch('/trades');
             const trades = await res.json();
@@ -140,6 +201,9 @@
                     break;
                 case "bbo":
                     onBBO(data);
+                    break;
+                case "book_update":
+                    onBookUpdate(data);
                     break;
                 default:
                     console.log("unknown", data.type)
