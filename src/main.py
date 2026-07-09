@@ -95,33 +95,29 @@ def get_sim_processes(to_server_q: Queue) -> list[Process]:
 
     return processes
 
-def sim_launcher(start_event: Event, stop_event: Event, to_server_q: Queue):
+def sim_launcher(from_server_q: Queue, to_server_q: Queue):
     sim_procs : list[Process] = []
     while True:
-        if not sim_procs:
-            start_event.wait()
-            sim_procs = get_sim_processes(to_server_q)
-            for p in sim_procs:
-                p.start()
-        else:
-            stop_event.wait()
-            for p in sim_procs:
-                p.terminate()
-            for p in sim_procs:
-                p.join(timeout=2)
-            sim_procs = []
+        from_server_q.get()
+        for p in sim_procs:
+            p.terminate()
+        for p in sim_procs:
+            p.join(timeout=2)
+        sim_procs = get_sim_processes(to_server_q)
+        for p in sim_procs:
+            p.start()
 
 def main():
-    start_event, stop_event = Event(), Event()
+    from_server_q = Queue()
     to_server_q = Queue()
 
     server_proc = Process(
         target=run_server,
-        args=(start_event, stop_event, to_server_q)
+        args=(to_server_q, from_server_q)
     )
     launcher_proc = Process(
         target=sim_launcher,
-        args=(start_event, stop_event, to_server_q)
+        args=(from_server_q, to_server_q)
     )
     server_proc.start()
     launcher_proc.start()

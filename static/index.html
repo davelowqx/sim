@@ -4,19 +4,31 @@
     <meta charset="UTF-8">
     <title>Simulated Exchange</title>
     <style>
-        body { background: #0d1117; margin: 0; padding: 20px; }
-        #chart { width: 100vw; height: 100vh; }
+        body { background: #0d1117; margin: 0; }
+        #chart { width: 100%; height: 100%; }
     </style>
 </head>
 <body>
-    <div id="chart"></div>
+    <button onclick="restart()" style="position: fixed; top: 20px; left: 20px; z-index: 1000;">
+        Restart Simulation
+    </button>
+    <div style="display: flex; justify-content: center; align-items: center; padding: 20px; height: 100vh; box-sizing: border-box;">
+        <div id="chart"></div>
+    </div>
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
     <script>
+        const tzOffset = new Date().getTimezoneOffset() * -60;
+
         const chart = LightweightCharts.createChart(document.getElementById('chart'), {
             layout: { background: { color: '#0d1117' }, textColor: '#e6edf3' },
             grid: { vertLines: { color: '#30363d' }, horzLines: { color: '#30363d' } },
             width: document.getElementById('chart').clientWidth,
             height: document.getElementById('chart').clientHeight,
+            timeScale: {
+                timeVisible: true,
+                secondsVisible: true,
+                timezone: 'Asia/Singapore',
+            },
         });
 
         const GREEN = "#3fb950"
@@ -53,57 +65,84 @@
 
         let bidLine = null;
         let askLine = null;
-        let currentCandle = null;
-        let currentVolume = 0;
+        let currCandle = null;
+        let currVol = 0;
 
-        function getIntervalTime() {
-            const now = Math.floor(Date.now() / 1000);
-            return now - (now % 15);
+        async function restart() {
+            await fetch('/restart', { method: 'POST' });
+            candleSeries.setData([]);
+            volumeSeries.setData([]);
+            bidLine = null;
+            askLine = null;
+            currCandle = null;
+            currVol = 0;
         }
 
-        const ws = new WebSocket(`ws://${window.location.host}/ws`);
 
+        function onTrade(data) {
+            data.ts += tzOffset;
+            const time = data.ts - data.ts % 10;
+            const price = parseFloat(data.px);
+
+            if (!currCandle || currCandle.time !== time) {
+                currCandle = { time, open: price, high: price, low: price, close: price };
+                currVol = data.qty;
+            } else {
+                currCandle.high = Math.max(currCandle.high, price);
+                currCandle.low = Math.min(currCandle.low, price);
+                currCandle.close = price;
+                currVol += data.qty;
+            }
+
+            candleSeries.update(currCandle);
+            volumeSeries.update({ time, value: currVol });
+        }
+
+        function onBBO(data) {
+            if (data.bid_px) {
+                if (bidLine) candleSeries.removePriceLine(bidLine);
+                bidLine = candleSeries.createPriceLine({
+                    price: parseFloat(data.bid_px),
+                    color: M_GREEN,
+                    lineWidth: 1,
+                    lineStyle: LightweightCharts.LineStyle.Dashed,
+                    axisLabelVisible: true,
+                    title: 'bid',
+                });
+            }
+            if (data.ask_px) {
+                if (askLine) candleSeries.removePriceLine(askLine);
+                askLine = candleSeries.createPriceLine({
+                    price: parseFloat(data.ask_px),
+                    color: M_RED,
+                    lineWidth: 1,
+                    lineStyle: LightweightCharts.LineStyle.Dashed,
+                    axisLabelVisible: true,
+                    title: 'ask',
+                });
+            }
+        }
+
+        async function fetchTrades() {
+            const res = await fetch('/trades');
+            const trades = await res.json();
+            for (const trade of trades) onTrade(trade); 
+        }
+
+        fetchTrades();
+
+        const ws = new WebSocket(`ws://${window.location.host}/ws`);
         ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
-            if (data.type == "trade") {
-                const time = getIntervalTime();
-                const price = parseFloat(data.px);
-
-                if (!currentCandle || currentCandle.time !== time) {
-                    currentCandle = { time, open: price, high: price, low: price, close: price };
-                    currentVolume = data.qty;
-                } else {
-                    currentCandle.high = Math.max(currentCandle.high, price);
-                    currentCandle.low = Math.min(currentCandle.low, price);
-                    currentCandle.close = price;
-                    currentVolume += data.qty;
-                }
-
-                candleSeries.update(currentCandle);
-                volumeSeries.update({ time, value: currentVolume });
-            } else if (data.type == "bbo") {
-                if (data.bid_px) {
-                    if (bidLine) candleSeries.removePriceLine(bidLine);
-                    bidLine = candleSeries.createPriceLine({
-                        price: parseFloat(data.bid_px),
-                        color: M_GREEN,
-                        lineWidth: 1,
-                        lineStyle: LightweightCharts.LineStyle.Dashed,
-                        axisLabelVisible: true,
-                        title: 'bid',
-                    });
-                }
-                if (data.ask_px) {
-                    if (askLine) candleSeries.removePriceLine(askLine);
-                    askLine = candleSeries.createPriceLine({
-                        price: parseFloat(data.ask_px),
-                        color: M_RED,
-                        lineWidth: 1,
-                        lineStyle: LightweightCharts.LineStyle.Dashed,
-                        axisLabelVisible: true,
-                        title: 'ask',
-                    });
-                }
+            switch (data.type) {
+                case "trade":
+                    onTrade(data);
+                    break;
+                case "bbo":
+                    onBBO(data);
+                    break;
+                default:
+                    console.log("unknown", data.type)
             }
         };
 

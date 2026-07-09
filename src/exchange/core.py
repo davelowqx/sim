@@ -5,6 +5,7 @@ from commons import RejectReason
 
 from .event_bus import EventBus
 from .matching_engine import MatchingEngine
+from .rolling_set import RollingSet
 from .order import Order
 
 class Exchange:
@@ -13,7 +14,7 @@ class Exchange:
         self._event_bus = event_bus
         self._matching_engine = MatchingEngine(event_bus)
 
-        self._request_ids: set[str] = set()
+        self._request_ids = RollingSet()
         self._orders: dict[str, Order] = {}
         self._seq_num = 0
 
@@ -41,7 +42,7 @@ class Exchange:
         self._event_bus.send(req.client_id, self._matching_engine.l2_snapshot)
     
     def _on_new_order_request(self, req: reqs.NewOrder) -> None:
-        order = Order.from_new_order_request(req, f"{self._seq_num:03d}")
+        order = Order.from_new_order_request(req, f"{self._seq_num:05d}")
         self._seq_num = (self._seq_num + 1) % 1000
         self._event_bus.send(
             order.client_id, 
@@ -85,3 +86,4 @@ class Exchange:
         self._logger.info("matching_engine.cancel() %s", order)
         self._matching_engine.cancel(order)
         self._matching_engine.print()
+        del self._orders[req.order_id]

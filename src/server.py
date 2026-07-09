@@ -11,32 +11,43 @@ import uvicorn
 
 from messages import market_data
 
-client: WebSocket | None = None
-stop_event: Event | None = None
-start_event: Event | None = None
+clients: set[WebSocket] = set()
+out_q: Queue | None = None
 in_q: Queue | None = None
+trades = []
+
+async def broadcast(msg: dict) -> None:
+    disconnected = []
+    for client in clients:
+        try:
+            await client.send_json(msg)
+        except:
+            disconnected.append(client)
+    for client in disconnected:
+        clients.remove(client)
 
 async def market_data_publisher() -> None:
     loop = asyncio.get_event_loop()
     while True:
         try:
             msg = await loop.run_in_executor(None, lambda: in_q.get(timeout=0.1))
-            if client:
-                match msg:
-                    case market_data.Trade():
-                        await client.send_json({
-                            "type": "trade",
-                            "ts": int(msg.ts.timestamp()),
-                            "px": str(msg.px),
-                            "qty": msg.qty,
-                        })
-                    case market_data.L1Quote():
-                        await client.send_json({
-                            "type": "bbo",
-                            "ts": int(msg.ts.timestamp()),
-                            "bid_px": str(msg.bid_px) if msg.bid_px else None,
-                            "ask_px": str(msg.ask_px) if msg.ask_px else None
-                        })
+            match msg:
+                case market_data.Trade():
+                    trade = {
+                        "type": "trade",
+                        "ts": int(msg.ts.timestamp()),
+                        "px": str(msg.px),
+                        "qty": msg.qty,
+                    }
+                    await broadcast(trade)
+                    trades.append(trade)
+                case market_data.L1Quote():
+                    await broadcast({
+                        "type": "bbo",
+                        "ts": int(msg.ts.timestamp()),
+                        "bid_px": str(msg.bid_px) if msg.bid_px else None,
+                        "ask_px": str(msg.ask_px) if msg.ask_px else None
+                    })
         except Empty:
             pass
 
@@ -54,28 +65,34 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 async def index():
     return FileResponse("static/index.html")
 
+@app.post("/restart")
+async def restart_simulation():
+    out_q.put("")
+    global trades
+    trades = []
+    return None
+
+@app.get("/trades")
+async def get_trades():
+    return trades
+
 @app.websocket("/ws")
 async def ws_handler(ws: WebSocket) -> None:
-    global client
     await ws.accept()
-    client = ws
-    stop_event.clear()
-    start_event.set()
+    clients.add(ws)
     try:
         while True:
             await ws.receive()
     except (WebSocketDisconnect, RuntimeError):
-        start_event.clear()
-        stop_event.set()
-        client = None
+        clients.remove(ws)
 
 async def main():
+    out_q.put("");
     server = uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=80))
     await server.serve()
 
-def run_server(_start_event: Event, _stop_event: Event, _in_q: Queue) -> None:
-    global start_event
-    global stop_event
+def run_server(_in_q: Queue, _out_q: Queue) -> None:
     global in_q
-    start_event, stop_event, in_q = _start_event, _stop_event, _in_q
+    global out_q
+    in_q, out_q = _in_q, _out_q
     asyncio.run(main())
