@@ -15,7 +15,7 @@ class Exchange:
         self._matching_engine = MatchingEngine(event_bus)
 
         self._request_ids = RollingSet()
-        self._orders: dict[str, Order] = {}
+        self._live_orders: dict[str, Order] = {}
         self._seq_num = 0
 
     def run(self) -> None:
@@ -61,26 +61,17 @@ class Exchange:
                 order_id=order.order_id
             )
         )
-        self._orders[order.order_id] = order
-        self._logger.info("matching_engine.new() %s", order)
-        self._matching_engine.new(order)
-        self._matching_engine.print()
+        for order_id in self._matching_engine.new(order):
+            del self._live_orders[order_id]
+
+        if order.order_type == OrderType.LIMIT and not order.is_terminal:
+            self._live_orders[order.order_id] = order
+        self._logger.info("orders=%s", [str(order) for order in self._live_orders.values()])
 
     def _on_cancel_order_request(self, req: reqs.CancelOrder) -> None:
-        order = self._orders.get(req.order_id, None)
-        if not order:
-            self._logger.warning("order cancel rejected: order %s not found", req.order_id)
-            msg = events.OrderCancelRejected(
-                ts=req.ts,
-                client_id=req.client_id, 
-                request_id=req.request_id, 
-                order_id=req.order_id,
-            )
-            self._event_bus.send(req.client_id, msg)
-            return 
-        
-        if not order.is_live or order.client_id != req.client_id:
-            self._logger.warning("order cancel rejected: order %s is %s", req.order_id, order.status.value)
+        order = self._live_orders.get(req.order_id, None)
+        if not order or not order.is_live or order.client_id != req.client_id:
+            self._logger.warning("order cancel rejected: order %s is %s", req.order_id, order.status.value if order else "not found")
             msg = events.OrderCancelRejected(
                 ts=req.ts,
                 client_id=req.client_id, 
@@ -90,7 +81,7 @@ class Exchange:
             self._event_bus.send(req.client_id, msg)
             return 
 
-        self._logger.info("matching_engine.cancel() %s", order)
         self._matching_engine.cancel(order)
-        self._matching_engine.print()
-        del self._orders[req.order_id]
+        del self._live_orders[req.order_id]
+
+        self._logger.info("orders=%s", [str(order) for order in self._live_orders.values()])

@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from decimal import Decimal
+import logging
 from sortedcontainers import SortedDict
 
 from commons import Side, OrderType
@@ -18,7 +19,8 @@ class PriceLevel:
         self._first_order : Order | None = None
         self._last_order : Order | None = None
     
-    def match(self, incoming_order: Order):
+    def match(self, incoming_order: Order) -> list[str]:
+        terminal_order_ids = []
         while incoming_order.unfilled_qty > 0 and self._first_order is not None:
             if incoming_order.client_id == self._first_order.client_id:
                 incoming_order.cancel()
@@ -29,7 +31,7 @@ class PriceLevel:
                         order_id=incoming_order.order_id,
                     )
                 )
-                return
+                return terminal_order_ids
             fill_qty = min(self._first_order.unfilled_qty, incoming_order.unfilled_qty)
             self.agg_qty -= fill_qty
             incoming_order.fill(fill_qty)
@@ -60,7 +62,10 @@ class PriceLevel:
             )
 
             if self._first_order.is_filled:
+                terminal_order_ids.append(self._first_order.order_id)
                 self._first_order = self._first_order.next_order
+        
+        return terminal_order_ids
         
     def add_resting_order(self, order: Order) -> None:
         if not self._first_order and not self._last_order:
@@ -104,6 +109,7 @@ class PriceLevel:
 
 class MatchingEngine:
     def __init__(self, event_bus: EventBus):
+        self._logger = logging.getLogger(self.__class__.__name__)
         self._event_bus = event_bus
         self._bids = SortedDict(lambda x: -x)
         self._asks = SortedDict()
@@ -133,7 +139,9 @@ class MatchingEngine:
             asks=[(px, level.agg_qty) for px, level in self._asks.items()],
         )
 
-    def new(self, order: Order) -> None:
+    def new(self, order: Order) -> list[str]:
+        self._logger.info("matching_engine.new() %s", order)
+        terminal_order_ids = []
         bids_updates, asks_updates = [], []
         inital_l1_quote = self.l1_quote
 
@@ -142,7 +150,7 @@ class MatchingEngine:
             px, level = levels.peekitem(0)
             if not order.can_match(px):
                 break
-            level.match(order)
+            terminal_order_ids.extend(level.match(order))
 
             if level.agg_qty == 0:
                 del levels[px]
@@ -175,7 +183,10 @@ class MatchingEngine:
         )
         self._event_bus.publish(l2_update)
 
+        return terminal_order_ids
+
     def cancel(self, order: Order) -> None:
+        self._logger.info("matching_engine.cancel() %s", order)
         levels = self._same_side(order.side)
         level: PriceLevel = levels[order.limit_px]
         level.cancel(order)

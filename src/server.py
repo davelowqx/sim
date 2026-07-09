@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
+from collections import deque
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -12,7 +13,7 @@ from messages import market_data
 clients: set[WebSocket] = set()
 out_q: "Queue | None" = None
 in_q: "Queue | None" = None
-trades = []
+trades = deque(maxlen=1000)
 
 async def broadcast(msg: dict) -> None:
     disconnected = []
@@ -72,13 +73,12 @@ async def index():
 @app.post("/restart")
 async def restart_simulation():
     out_q.put("")
-    global trades
-    trades = []
+    trades.clear()
     return None
 
 @app.get("/trades")
 async def get_trades():
-    return trades
+    return list(trades)
 
 @app.websocket("/ws")
 async def ws_handler(ws: WebSocket) -> None:
