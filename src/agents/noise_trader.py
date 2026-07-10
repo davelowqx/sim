@@ -14,7 +14,8 @@ class NoiseTrader(Agent):
         super().__init__(client_id, exchange_adapter)
         self._max_qty = max_qty
         self._trade_interval_ms = trade_interval_ms
-        self._last_trade : market_data.Trade | None = None
+        self._last_trade_px = Decimal("10")
+        self._last_traded_ts = datetime.now()
 
     def _on_l1_quote(self, msg: market_data.L1Quote):
         ...
@@ -23,7 +24,7 @@ class NoiseTrader(Agent):
         self._maybe_market_order()
 
     def _on_trade(self, msg: market_data.Trade):
-        self._last_trade = msg
+        self._last_trade_px = msg.px
 
     def _on_order_accepted(self, ev: events.OrderAccepted):
         ...
@@ -47,9 +48,13 @@ class NoiseTrader(Agent):
         self._maybe_market_order()
     
     def _maybe_market_order(self):
-        if (self._last_trade and 
-            datetime.now() - self._last_trade.ts < timedelta(milliseconds=self._trade_interval_ms)):
+        if (datetime.now() - self._last_traded_ts < timedelta(milliseconds=self._trade_interval_ms)):
             return
+        
+        if random.random() > 0.8:
+            return
+
+        self._last_traded_ts = datetime.now()
 
         side = Side.BUY if random.random() < self._buy_probability else Side.SELL
         self._exch.submit(
@@ -61,8 +66,6 @@ class NoiseTrader(Agent):
     
     @property
     def _buy_probability(self) -> float:
-        if self._last_trade is None:
-            return 0.5
-        deviation = float((self._last_trade.px - Decimal("10")) / Decimal("10"))
+        deviation = float((self._last_trade_px - Decimal("10")) / Decimal("10"))
         return 1 / (1 + math.exp(deviation))
     

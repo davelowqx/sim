@@ -73,8 +73,8 @@ async def index():
 
 @app.post("/restart")
 async def restart_simulation():
-    out_q.put("")
     trades.clear()
+    out_q.put("")
     return None
 
 @app.get("/trades")

@@ -71,7 +71,7 @@ def get_sim_processes(to_server_q: Queue) -> list[Process]:
             args=(NoiseTrader,),
             kwargs={
                 "max_qty": 30,
-                "trade_interval_ms": 15,
+                "trade_interval_ms": 50,
                 "client_id": noise_trader_client_id,
                 "exchange_adapter": ExchangeAdapter(
                     client_id=noise_trader_client_id,
