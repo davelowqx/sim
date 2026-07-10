@@ -67,7 +67,7 @@ class NoiseTrader(Agent):
         self._exch.submit(
             order_type=OrderType.MARKET,
             side=side, 
-            qty=round(random.uniform(0.5, 1.5) * qty),
+            qty=round(random.uniform(0.5, 1.2) * qty),
             limit_px=None
         )
     
