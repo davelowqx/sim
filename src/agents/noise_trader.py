@@ -10,15 +10,15 @@ from .agent import Agent
 from .exchange_adapter import ExchangeAdapter
 
 class NoiseTrader(Agent):
-    def __init__(self, max_qty: int, trade_interval_ms: int, client_id: str, exchange_adapter: ExchangeAdapter):
+    def __init__(self, trade_interval_ms: int, client_id: str, exchange_adapter: ExchangeAdapter):
         super().__init__(client_id, exchange_adapter)
-        self._max_qty = max_qty
         self._trade_interval_ms = trade_interval_ms
         self._last_trade_px = Decimal("10")
-        self._last_traded_ts = datetime.now()
+        self._last_l1_quote : market_data.L1Quote | None = None
+        self._last_sent_ts = datetime.now()
 
     def _on_l1_quote(self, msg: market_data.L1Quote):
-        ...
+        self._last_l1_quote = msg
 
     def _on_l2_update(self, msg: market_data.L2Update):
         self._maybe_market_order()
@@ -48,19 +48,26 @@ class NoiseTrader(Agent):
         self._maybe_market_order()
     
     def _maybe_market_order(self):
-        if (datetime.now() - self._last_traded_ts < timedelta(milliseconds=self._trade_interval_ms)):
+        if (datetime.now() - self._last_sent_ts < timedelta(milliseconds=self._trade_interval_ms)):
             return
         
         if random.random() > 0.8:
             return
 
-        self._last_traded_ts = datetime.now()
+        self._last_sent_ts = datetime.now()
 
         side = Side.BUY if random.random() < self._buy_probability else Side.SELL
+        qty = 10
+        if self._last_l1_quote:
+            if side == Side.BUY and self._last_l1_quote.bid_qty:
+                qty = self._last_l1_quote.bid_qty
+            if side == Side.SELL and self._last_l1_quote.ask_qty:
+                qty = self._last_l1_quote.ask_qty
+
         self._exch.submit(
             order_type=OrderType.MARKET,
             side=side, 
-            qty=random.randrange(1, self._max_qty),
+            qty=round(random.uniform(0.5, 1.5) * qty),
             limit_px=None
         )
     
