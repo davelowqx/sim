@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
+from commons import Side
 from .message import Message
 
 type PriceQty = tuple[Decimal, int]
@@ -70,6 +71,7 @@ class L2Update(Message):
 class Trade(Message):
     px: Decimal
     qty: int
+    aggressor_side: Side
 
     def __str__(self) -> str:
         return f"Trade: ${self.px}x{self.qty}"

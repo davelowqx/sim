@@ -13,7 +13,7 @@ class Agent(ABC):
 
     def run(self):
         self._logger.info("running")
-        self._exch.subscribe(self._dispatch)
+        self._exch.subscribe(self._on_startup, self._dispatch, self._on_timeout)
 
     def _dispatch(self, msg: Message):
         match msg:
@@ -33,45 +33,45 @@ class Agent(ABC):
                 self._on_order_cancelled(msg)
             case events.OrderCancelRejected():
                 self._on_order_cancel_rejected(msg)
-            case None:
-                self._on_empty()
-            case _:
-                self._logger.warning("no match for %s", type(msg))
     
     @abstractmethod
     def _on_l1_quote(self, msg: market_data.L1Quote):
-        self._logger.debug(msg)
+        ...
 
     @abstractmethod
     def _on_l2_update(self, msg: market_data.L2Update):
-        self._logger.debug(msg)
+        ...
 
     @abstractmethod
     def _on_trade(self, msg: market_data.Trade):
-        self._logger.debug(msg)
+        ...
 
     @abstractmethod
     def _on_order_accepted(self, ev: events.OrderAccepted):
-        self._logger.debug(ev)
+        ...
 
     @abstractmethod
     def _on_order_rejected(self, ev: events.OrderRejected):
-        self._logger.warning(ev)
+        ...
 
     @abstractmethod
     def _on_order_executed(self, ev: events.OrderExecuted):
-        self._logger.info(ev)
+        ...
 
     @abstractmethod
     def _on_order_cancelled(self, ev: events.OrderCancelled):
-        self._logger.info(ev)
+        ...
 
     @abstractmethod
     def _on_order_cancel_rejected(self, ev: events.OrderCancelRejected):
-        self._logger.warning(ev)
+        ...
     
     @abstractmethod
-    def _on_empty(self):
+    def _on_startup(self):
+        ...
+
+    @abstractmethod
+    def _on_timeout(self):
         ...
 
     

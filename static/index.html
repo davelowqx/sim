@@ -27,11 +27,17 @@
         </button>
     </div>
     <div style="position: fixed; top: 20px; left: 20px; z-index: 1000;">
-        <div id="orderbook" style="font-family: monospace; font-size: 13px; width: 150px; padding: 20px; background-color: rgba(0, 0, 0, 0.5);">
+        <div style="font-family: monospace; font-size: 13px; width: 150px; padding: 20px; background-color: rgba(0, 0, 0, 0.5);">
             <div style="color: white">Orderbook</div>
-            <div id="asks" style="height: 50px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end;"></div>
+            <div id="asks" style="height: 60px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end;"></div>
             <hr style="border: none; border-top: 1px solid #444; margin: 4px 0;">
-            <div id="bids" style="height: 50px; overflow: hidden;"></div>
+            <div id="bids" style="height: 60px; overflow: hidden;"></div>
+        </div>
+        <br/>
+        <div style="font-family: monospace; font-size: 13px; width: 150px; padding: 20px; background-color: rgba(0, 0, 0, 0.5);">
+            <div style="color: white">Trades</div>
+            <hr style="border: none; border-top: 1px solid #444; margin: 4px 0;">
+            <div id="trades"></div>
         </div>
     </div>
     <div style="display: flex; justify-content: center; align-items: center; padding: 20px; height: 100vh; box-sizing: border-box;">
@@ -89,31 +95,47 @@
         let askLine = null;
         let currCandle = null;
         let currVol = 0;
-        const book = { bids: {}, asks: {} };
+        const bids = {}
+        const asks = {}
+        const trades = []
 
-        function renderBook() {
-            bids = { ...book.bids };
-            asks = { ...book.asks };
-            const bidPrices = Object.keys(bids).map(Number).sort((a, b) => b - a);
-            const askPrices = Object.keys(asks).map(Number).sort((a, b) => b - a);
+        function repaint() {
+            const bids_ = { ...bids };
+            const asks_ = { ...asks };
+            const bidPrices = Object.keys(bids_).map(Number).sort((a, b) => b - a);
+            const askPrices = Object.keys(asks_).map(Number).sort((a, b) => b - a);
+            const maxQty = Math.max(...Object.values(bids_), ...Object.values(asks_), 1);
 
-            document.getElementById('asks').innerHTML = askPrices.map(px =>
-                asks[px] ? 
-                `<div style="display:flex; justify-content:space-between; color:#f85149;">
-                    <span>${px}</span><span>${asks[px]}</span>
-                </div>` : ''
-            ).join('');
+            document.getElementById('asks').innerHTML = askPrices.map(px => {
+                if (!asks_[px]) return '';
+                const pct = Math.round(asks_[px] / maxQty * 100);
+                return `<div style="position:relative; display:flex; justify-content:space-between; font-family:monospace; font-size:12px; padding:2px 4px;">
+                    <div style="position:absolute; right:0; top:0; bottom:0; width:${pct}%; background:rgba(248,81,73,0.15);"></div>
+                    <span style="position:relative; color:${RED};">${px}</span>
+                    <span style="position:relative; color:${RED};">${asks_[px]}</span>
+                </div>`;
+            }).join('');
 
-            document.getElementById('bids').innerHTML = bidPrices.map(px =>
-                bids[px] ? 
-                `<div style="display:flex; justify-content:space-between; color:#3fb950;">
-                    <span>${px}</span><span>${bids[px]}</span>
-                </div>` : ''
+            document.getElementById('bids').innerHTML = bidPrices.map(px => {
+                if (!bids_[px]) return '';
+                const pct = Math.round(bids_[px] / maxQty * 100);
+                return `<div style="position:relative; display:flex; justify-content:space-between; font-family:monospace; font-size:12px; padding:2px 4px;">
+                    <div style="position:absolute; right:0; top:0; bottom:0; width:${pct}%; background:rgba(63,185,80,0.15);;"></div>
+                    <span style="position:relative; color:${GREEN};">${px}</span>
+                    <span style="position:relative; color:${GREEN};">${bids_[px]}</span>
+                </div>`;
+            }).join('');
+
+
+            document.getElementById('trades').innerHTML = trades.map(t =>
+                `<div style="display:flex; justify-content:space-between; font-family:monospace; font-size:12px; padding:2px 0; color:${t.aggressor_side === 'BUY' ? GREEN : RED};">
+                    <span>${t.px}</span>
+                    <span>${t.qty}</span>
+                </div>`
             ).join('');
         }
 
-        setInterval(renderBook, 100);
-
+        setInterval(repaint, 200);
 
         async function restart() {
             await fetch('/restart', { method: 'POST' });
@@ -123,10 +145,10 @@
             askLine = null;
             currCandle = null;
             currVol = 0;
-            book.bids = [];
-            book.asks = [];
+            bids.length = 0;
+            asks.length = 0;
+            trades.length = 0;
         }
-
 
         function onTrade(data) {
             data.ts += tzOffset;
@@ -145,9 +167,12 @@
 
             candleSeries.update(currCandle);
             volumeSeries.update({ time, value: currVol });
+
+            trades.unshift(data);
+            if (trades.length > 5) trades.pop();
         }
 
-        function onBBO(data) {
+        function onL1Quote(data) {
             if (data.bid_px) {
                 if (bidLine) candleSeries.removePriceLine(bidLine);
                 bidLine = candleSeries.createPriceLine({
@@ -172,14 +197,14 @@
             }
         }
 
-        function onBookUpdate(data) {
+        function onL2Update(data) {
             data.bids.forEach(([price, qty]) => {
-                if (qty == 0) delete book.bids[price];
-                else book.bids[price] = qty;
+                if (qty == 0) delete bids[price];
+                else bids[price] = qty;
             });
             data.asks.forEach(([price, qty]) => {
-                if (qty == 0) delete book.asks[price];
-                else book.asks[price] = qty;
+                if (qty == 0) delete asks[price];
+                else asks[price] = qty;
             });
         }
 
@@ -199,11 +224,11 @@
                 case "trade":
                     onTrade(data);
                     break;
-                case "bbo":
-                    onBBO(data);
+                case "l1_quote":
+                    onL1Quote(data);
                     break;
-                case "book_update":
-                    onBookUpdate(data);
+                case "l2_update":
+                    onL2Update(data);
                     break;
                 default:
                     console.log("unknown", data.type)

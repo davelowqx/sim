@@ -1,7 +1,7 @@
 from decimal import Decimal
 from uuid import uuid4
-from multiprocessing import Queue
 from queue import Empty
+from multiprocessing import Queue
 
 from commons import OrderType, Side
 from messages import reqs
@@ -14,13 +14,14 @@ class ExchangeAdapter:
         self._send_q = send_q
         self._rcv_q = rcv_q
 
-    def subscribe(self, callback) -> None:
+    def subscribe(self, init_func, msg_callback, timeout_callback) -> None:
+        init_func()
         while True: 
             try:
                 msg = self._rcv_q.get(timeout=1) 
-                callback(msg)
+                msg_callback(msg)
             except Empty:
-                callback(None)
+                timeout_callback()
 
     def submit(self, order_type: OrderType, side: Side, qty: int, limit_px: Decimal | None) -> Order:
         request_id = str(uuid4())

@@ -63,10 +63,10 @@ class Order:
         if self.order_type == OrderType.MARKET:
             return True
         
-        if self.is_buy and self.limit_px > px:
+        if self.is_buy and self.limit_px >= px:
             return True
 
-        if self.is_sell and self.limit_px < px:
+        if self.is_sell and self.limit_px <= px:
             return True
         
         return False

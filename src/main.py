@@ -27,10 +27,9 @@ def run_exchange(event_bus: EventBus):
 
 def get_sim_processes(to_server_q: Queue) -> list[Process]:
     exchange_q = Queue()
-    mm1_q, mm2_q = Queue(), Queue()
+    mm_qs = [Queue() for _ in range(3)]
     noise_trader_q = Queue()
-    mm1_client_id = "MM1"
-    mm2_client_id = "MM2"
+    mm_client_ids = [f"MM{i + 1}" for i in range(3)]
     noise_trader_client_id = "A"
 
     processes : list[Process] = []
@@ -39,8 +38,9 @@ def get_sim_processes(to_server_q: Queue) -> list[Process]:
             target=run_exchange, 
             args=(EventBus(
                 send_qs={
-                    mm1_client_id: mm1_q,
-                    mm2_client_id: mm2_q,
+                    mm_client_ids[0]: mm_qs[0],
+                    mm_client_ids[1]: mm_qs[1],
+                    mm_client_ids[2]: mm_qs[2],
                     noise_trader_client_id: noise_trader_q,
                     "": to_server_q
                 },
@@ -48,41 +48,30 @@ def get_sim_processes(to_server_q: Queue) -> list[Process]:
             ),)
         )
     )
-    processes.append(
-        Process(
-            target=run_agent, 
-            args=(MarketMaker,),
-            kwargs={
-                "offset": Decimal("0.01"),
-                "client_id": mm1_client_id,
-                "exchange_adapter": ExchangeAdapter(
-                    client_id=mm1_client_id,
-                    send_q=exchange_q,
-                    rcv_q=mm1_q
-                )
-            }
+    for i in range(3):
+        processes.append(
+            Process(
+                target=run_agent, 
+                args=(MarketMaker,),
+                kwargs={
+                    "quote_offset": Decimal("0.01") * (i + 1),
+                    "quote_qty": 10 * (i + 1),
+                    "client_id": mm_client_ids[i],
+                    "exchange_adapter": ExchangeAdapter(
+                        client_id=mm_client_ids[i],
+                        send_q=exchange_q,
+                        rcv_q=mm_qs[i]
+                    )
+                }
+            )
         )
-    )
-    processes.append(
-        Process(
-            target=run_agent, 
-            args=(MarketMaker,),
-            kwargs={
-                "offset": Decimal("0.02"),
-                "client_id": mm2_client_id,
-                "exchange_adapter": ExchangeAdapter(
-                    client_id=mm2_client_id,
-                    send_q=exchange_q,
-                    rcv_q=mm2_q
-                )
-            }
-        )
-    )
     processes.append(
         Process(
             target=run_agent, 
             args=(NoiseTrader,),
             kwargs={
+                "max_qty": 30,
+                "trade_interval_ms": 15,
                 "client_id": noise_trader_client_id,
                 "exchange_adapter": ExchangeAdapter(
                     client_id=noise_trader_client_id,

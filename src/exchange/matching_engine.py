@@ -57,7 +57,8 @@ class PriceLevel:
             self._event_bus.publish(
                 market_data.Trade(
                     px=self.px,
-                    qty=fill_qty
+                    qty=fill_qty,
+                    aggressor_side=incoming_order.side,
                 )
             )
 
@@ -140,7 +141,7 @@ class MatchingEngine:
         )
 
     def new(self, order: Order) -> list[str]:
-        self._logger.info("matching_engine.new() %s", order)
+        self._logger.debug("matching_engine.new() %s", order)
         terminal_order_ids = []
         bids_updates, asks_updates = [], []
         inital_l1_quote = self.l1_quote
@@ -185,10 +186,15 @@ class MatchingEngine:
 
         return terminal_order_ids
 
-    def cancel(self, order: Order) -> None:
-        self._logger.info("matching_engine.cancel() %s", order)
+    def cancel(self, order: Order) -> list[str]:
+        self._logger.debug("matching_engine.cancel() %s", order)
         levels = self._same_side(order.side)
-        level: PriceLevel = levels[order.limit_px]
+        try:
+            level: PriceLevel = levels[order.limit_px]
+        except KeyError:
+            self._logger.error("failed to cancel %s: price level not found", order.order_id)
+            return []
+
         level.cancel(order)
         if level.agg_qty == 0:
             del levels[order.limit_px]
@@ -199,6 +205,7 @@ class MatchingEngine:
             order_id=order.order_id
         )
         self._event_bus.send(order.client_id, msg)
+        return [order.order_id]
 
     
     def print(self) -> None:

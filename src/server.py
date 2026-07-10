@@ -13,7 +13,7 @@ from messages import market_data
 clients: set[WebSocket] = set()
 out_q: "Queue | None" = None
 in_q: "Queue | None" = None
-trades = deque(maxlen=1000)
+trades = deque(maxlen=10000)
 
 async def broadcast(msg: dict) -> None:
     disconnected = []
@@ -37,19 +37,20 @@ async def market_data_publisher() -> None:
                         "ts": int(msg.ts.timestamp()),
                         "px": str(msg.px),
                         "qty": msg.qty,
+                        "aggressor_side": msg.aggressor_side.value
                     }
                     await broadcast(trade)
                     trades.append(trade)
                 case market_data.L1Quote():
                     await broadcast({
-                        "type": "bbo",
+                        "type": "l1_quote",
                         "ts": int(msg.ts.timestamp()),
                         "bid_px": str(msg.bid_px) if msg.bid_px else None,
                         "ask_px": str(msg.ask_px) if msg.ask_px else None
                     })
                 case market_data.L2Update():
                     await broadcast({
-                        "type": "book_update",
+                        "type": "l2_update",
                         "bids": [[str(px), qty] for px, qty in msg.bids],
                         "asks": [[str(px), qty] for px, qty in msg.asks] 
                     })
