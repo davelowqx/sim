@@ -35,7 +35,7 @@ class Exchange:
                 self._on_cancel_order_request(req)
             case reqs.GetL2Snapshot():
                 self._on_l2_snapshot_request(req)
-
+        
     def _on_l2_snapshot_request(self, req: reqs.GetL2Snapshot) -> None:
         self._event_bus.send(req.client_id, self._matching_engine.l2_snapshot)
     
@@ -64,7 +64,10 @@ class Exchange:
 
         if order.order_type == OrderType.LIMIT and not order.is_terminal:
             self._live_orders[order.order_id] = order
-        self._logger.debug("orders=%s", [str(order) for order in self._live_orders.values()])
+
+        if len(self._live_orders) > 6:
+            self._logger.warning("orders = %s", [f"{o.client_id}-{o.order_id}" for o in self._live_orders.values()])
+
 
     def _on_cancel_order_request(self, req: reqs.CancelOrder) -> None:
         order = self._live_orders.get(req.order_id, None)
@@ -81,5 +84,3 @@ class Exchange:
 
         for order_id in self._matching_engine.cancel(order):
             del self._live_orders[order_id]
-
-        self._logger.debug("orders=%s", [str(order) for order in self._live_orders.values()])
