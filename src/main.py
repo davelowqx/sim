@@ -54,8 +54,8 @@ def get_sim_processes(to_server_q: Queue) -> list[Process]:
                 target=run_agent, 
                 args=(MarketMaker,),
                 kwargs={
-                    "quote_offset": Decimal("0.01") * (i + 1),
-                    "quote_qty": 10 * (i + 1),
+                    "ticks_offset": i + 1,
+                    "default_quote_qty": 10 * (i + 1),
                     "client_id": mm_client_ids[i],
                     "exchange_adapter": ExchangeAdapter(
                         client_id=mm_client_ids[i],
@@ -70,6 +70,7 @@ def get_sim_processes(to_server_q: Queue) -> list[Process]:
             target=run_agent, 
             args=(NoiseTrader,),
             kwargs={
+                "k": 4,
                 "trade_interval_ms": 10,
                 "client_id": noise_trader_client_id,
                 "exchange_adapter": ExchangeAdapter(

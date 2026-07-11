@@ -7,14 +7,16 @@ from .agent import Agent
 from .order import Order, OrderStatus
 from .exchange_adapter import ExchangeAdapter
 
+TICKSIZE = Decimal("0.01")
+
 class MarketMaker(Agent):
-    def __init__(self, quote_offset: Decimal, quote_qty: int, client_id: str, exchange_adapter: ExchangeAdapter):
+    def __init__(self, ticks_offset: Decimal, default_quote_qty: int, client_id: str, exchange_adapter: ExchangeAdapter):
         super().__init__(client_id, exchange_adapter)
 
         self._orders : dict[str, Order] = {}
 
-        self._quote_offset = quote_offset
-        self._quote_qty = quote_qty
+        self._ticks_offset = ticks_offset
+        self._default_quote_qty = default_quote_qty
 
         self._last_px = Decimal("10")
 
@@ -31,13 +33,13 @@ class MarketMaker(Agent):
 
         curr_bid = self._curr_bid
         if (curr_bid is not None and not curr_bid.is_pending 
-            and msg.px - self._quote_offset > curr_bid.limit_px): 
+            and self._is_outside_range(curr_bid.limit_px, self._target_bid_px)):
             self._exch.cancel(curr_bid.order_id)
             curr_bid.status = OrderStatus.PENDING_CANCEL
     
         curr_ask = self._curr_ask
         if (curr_ask is not None and not curr_ask.is_pending
-            and msg.px + self._quote_offset < curr_ask.limit_px):
+            and self._is_outside_range(curr_ask.limit_px, self._target_ask_px)):
             self._exch.cancel(curr_ask.order_id)
             curr_ask.status = OrderStatus.PENDING_CANCEL
 
@@ -91,18 +93,41 @@ class MarketMaker(Agent):
             if order.side == Side.SELL:
                 return order
         return None
+    
+    @property
+    def _abs_delta(self) -> int:
+        return int(abs(self._delta) / 100)
+
+    @property
+    def _target_bid_px(self) -> Decimal:
+        if self._delta > 0:
+            return self._last_px - (self._ticks_offset + self._abs_delta) * TICKSIZE
+        return self._last_px - (self._ticks_offset * TICKSIZE)
+
+    @property
+    def _target_bid_qty(self) -> Decimal:
+        return max(self._abs_delta, self._default_quote_qty) if self._delta < 0 else self._default_quote_qty
+
+    @property
+    def _target_ask_px(self) -> Decimal:
+        if self._delta < 0:
+            return self._last_px + (self._ticks_offset + self._abs_delta) * TICKSIZE
+        return self._last_px + (self._ticks_offset * TICKSIZE)
+
+    @property
+    def _target_ask_qty(self) -> Decimal:
+        return max(self._abs_delta, self._default_quote_qty) if self._delta > 0 else self._default_quote_qty
+    
+    @staticmethod
+    def _is_outside_range(curr_px: Decimal, target_px: Decimal) -> bool:
+        return not (target_px - TICKSIZE <= curr_px <= target_px + TICKSIZE)
 
     def _new_quote(self, side: Side):
-        if side == Side.BUY:
-            qty = abs(self._delta) if self._delta < 0 else self._quote_qty
-        else:
-            qty = self._delta if self._delta > 0 else self._quote_qty
-        limit_px = self._last_px + self._quote_offset * (-1 if side == Side.BUY else 1)
         order = self._exch.submit(
             order_type=OrderType.LIMIT,
             side=side, 
-            qty=qty,
-            limit_px=limit_px
+            qty=self._target_bid_qty if side == Side.BUY else self._target_ask_qty,
+            limit_px=self._target_bid_px if side == Side.BUY else self._target_ask_px
         )
         self._orders[order.request_id] = order
     

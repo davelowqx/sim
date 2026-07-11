@@ -16,14 +16,11 @@ in_q: "Queue | None" = None
 trades = deque(maxlen=10000)
 
 async def broadcast(msg: dict) -> None:
-    disconnected = []
     for client in clients:
         try:
             await client.send_json(msg)
         except:
-            disconnected.append(client)
-    for client in disconnected:
-        clients.remove(client)
+            pass
 
 async def market_data_publisher() -> None:
     loop = asyncio.get_event_loop()

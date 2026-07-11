@@ -10,8 +10,9 @@ from .agent import Agent
 from .exchange_adapter import ExchangeAdapter
 
 class NoiseTrader(Agent):
-    def __init__(self, trade_interval_ms: int, client_id: str, exchange_adapter: ExchangeAdapter):
+    def __init__(self, k: int, trade_interval_ms: int, client_id: str, exchange_adapter: ExchangeAdapter):
         super().__init__(client_id, exchange_adapter)
+        self._k = k
         self._trade_interval_ms = trade_interval_ms
         self._last_trade_px = Decimal("10")
         self._last_l1_quote : market_data.L1Quote | None = None
@@ -73,6 +74,6 @@ class NoiseTrader(Agent):
     
     @property
     def _buy_probability(self) -> float:
-        deviation = float((self._last_trade_px - Decimal("10")) / Decimal("10"))
-        return 1 / (1 + math.exp(deviation))
+        deviation = (self._last_trade_px - Decimal("10")) / Decimal("10")
+        return 1 / (1 + math.exp(self._k * deviation))
     
