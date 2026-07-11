@@ -148,6 +148,7 @@
             bids.length = 0;
             asks.length = 0;
             trades.length = 0;
+            init();
         }
 
         function onTrade(data) {
@@ -208,32 +209,31 @@
             });
         }
 
-
-        async function fetchTrades() {
+        async function init() {
             const res = await fetch('/trades');
             const trades = await res.json();
             for (const trade of trades) onTrade(trade); 
+
+            const ws = new WebSocket(`ws://${window.location.host}/ws`);
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                switch (data.type) {
+                    case "trade":
+                        onTrade(data);
+                        break;
+                    case "l1_quote":
+                        onL1Quote(data);
+                        break;
+                    case "l2_update":
+                        onL2Update(data);
+                        break;
+                    default:
+                        console.log("unknown", data.type)
+                }
+            };
         }
 
-        fetchTrades();
-
-        const ws = new WebSocket(`ws://${window.location.host}/ws`);
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            switch (data.type) {
-                case "trade":
-                    onTrade(data);
-                    break;
-                case "l1_quote":
-                    onL1Quote(data);
-                    break;
-                case "l2_update":
-                    onL2Update(data);
-                    break;
-                default:
-                    console.log("unknown", data.type)
-            }
-        };
+        init();
 
         window.addEventListener('resize', () => {
             chart.applyOptions({ 
