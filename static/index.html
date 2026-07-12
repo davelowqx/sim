@@ -98,6 +98,7 @@
         let bids = {}
         let asks = {}
         let trades = []
+        let ws = null;
 
         function repaint() {
             const bids_ = { ...bids };
@@ -216,7 +217,7 @@
             const trades = await res.json();
             for (const trade of trades) onTrade(trade); 
 
-            const ws = new WebSocket(`ws://${window.location.host}/ws`);
+            ws = new WebSocket(`ws://${window.location.host}/ws`);
             ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);
                 switch (data.type) {
@@ -238,7 +239,9 @@
         init();
 
         document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') init();
+            if (document.visibilityState === 'visible' && (!ws || ws.readyState !== WebSocket.OPEN)) {
+                init();
+            }
         });
 
         window.addEventListener('resize', () => {
