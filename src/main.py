@@ -70,7 +70,7 @@ def get_sim_processes(to_server_q: Queue) -> list[Process]:
             target=run_agent, 
             args=(NoiseTrader,),
             kwargs={
-                "k": 4,
+                "k": 2,
                 "trade_interval_ms": 10,
                 "client_id": noise_trader_client_id,
                 "exchange_adapter": ExchangeAdapter(
