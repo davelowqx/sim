@@ -214,8 +214,12 @@
 
         async function init() {
             const res = await fetch('/trades');
-            const trades = await res.json();
-            for (const trade of trades) onTrade(trade); 
+            const trades_ = await res.json();
+            for (const t of trades_) onTrade(t); 
+
+            bids = {};
+            asks = {};
+            trades = [];
 
             ws = new WebSocket(`ws://${window.location.host}/ws`);
             ws.onmessage = (event) => {
