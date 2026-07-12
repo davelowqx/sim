@@ -94,7 +94,6 @@
         let bidLine = null;
         let askLine = null;
         let currCandle = null;
-        let currVol = 0;
         let bids = {}
         let asks = {}
         let trades = []
@@ -107,16 +106,6 @@
             const askPrices = Object.keys(asks_).map(Number).sort((a, b) => b - a);
             const maxQty = Math.max(...Object.values(bids_), ...Object.values(asks_), 1);
 
-            document.getElementById('asks').innerHTML = askPrices.map(px => {
-                if (!asks_[px]) return '';
-                const pct = Math.round(asks_[px] / maxQty * 100);
-                return `<div style="position:relative; display:flex; justify-content:space-between; font-family:monospace; font-size:12px; padding:2px 4px;">
-                    <div style="position:absolute; right:0; top:0; bottom:0; width:${pct}%; background:rgba(248,81,73,0.15);"></div>
-                    <span style="position:relative; color:${RED};">${px}</span>
-                    <span style="position:relative; color:${RED};">${asks_[px]}</span>
-                </div>`;
-            }).join('');
-
             document.getElementById('bids').innerHTML = bidPrices.map(px => {
                 if (!bids_[px]) return '';
                 const pct = Math.round(bids_[px] / maxQty * 100);
@@ -127,6 +116,15 @@
                 </div>`;
             }).join('');
 
+            document.getElementById('asks').innerHTML = askPrices.map(px => {
+                if (!asks_[px]) return '';
+                const pct = Math.round(asks_[px] / maxQty * 100);
+                return `<div style="position:relative; display:flex; justify-content:space-between; font-family:monospace; font-size:12px; padding:2px 4px;">
+                    <div style="position:absolute; right:0; top:0; bottom:0; width:${pct}%; background:rgba(248,81,73,0.15);"></div>
+                    <span style="position:relative; color:${RED};">${px}</span>
+                    <span style="position:relative; color:${RED};">${asks_[px]}</span>
+                </div>`;
+            }).join('');
 
             document.getElementById('trades').innerHTML = trades.map(t =>
                 `<div style="display:flex; justify-content:space-between; font-family:monospace; font-size:12px; padding:2px 0; color:${t.aggressor_side === 'BUY' ? GREEN : RED};">
@@ -140,6 +138,31 @@
 
         async function restart() {
             await fetch('/restart', { method: 'POST' });
+            init();
+        }
+
+        function onTrade(data) {
+            data.ts += tzOffset;
+            const time = data.ts - data.ts % 10;
+            const price = parseFloat(data.px);
+
+            if (!currCandle || currCandle.time !== time) {
+                currCandle = { time, open: price, high: price, low: price, close: price, vol: data.qty };
+            } else {
+                currCandle.high = Math.max(currCandle.high, price);
+                currCandle.low = Math.min(currCandle.low, price);
+                currCandle.close = price;
+                currCandle.vol += data.qty;
+            }
+
+            candleSeries.update(currCandle);
+            volumeSeries.update({ time, value: currCandle.vol });
+
+            trades.unshift(data);
+            if (trades.length > 5) trades.pop();
+        }
+
+        async function init() {
             candleSeries.setData([]);
             volumeSeries.setData([]);
             if (askLine) candleSeries.removePriceLine(askLine);
@@ -151,75 +174,10 @@
             bids = {};
             asks = {};
             trades = [];
-            init();
-        }
 
-        function onTrade(data) {
-            data.ts += tzOffset;
-            const time = data.ts - data.ts % 10;
-            const price = parseFloat(data.px);
-
-            if (!currCandle || currCandle.time !== time) {
-                currCandle = { time, open: price, high: price, low: price, close: price };
-                currVol = data.qty;
-            } else {
-                currCandle.high = Math.max(currCandle.high, price);
-                currCandle.low = Math.min(currCandle.low, price);
-                currCandle.close = price;
-                currVol += data.qty;
-            }
-
-            candleSeries.update(currCandle);
-            volumeSeries.update({ time, value: currVol });
-
-            trades.unshift(data);
-            if (trades.length > 5) trades.pop();
-        }
-
-        function onL1Quote(data) {
-            if (data.bid_px) {
-                if (bidLine) candleSeries.removePriceLine(bidLine);
-                bidLine = candleSeries.createPriceLine({
-                    price: parseFloat(data.bid_px),
-                    color: M_GREEN,
-                    lineWidth: 1,
-                    lineStyle: LightweightCharts.LineStyle.Dashed,
-                    axisLabelVisible: true,
-                    title: 'bid',
-                });
-            }
-            if (data.ask_px) {
-                if (askLine) candleSeries.removePriceLine(askLine);
-                askLine = candleSeries.createPriceLine({
-                    price: parseFloat(data.ask_px),
-                    color: M_RED,
-                    lineWidth: 1,
-                    lineStyle: LightweightCharts.LineStyle.Dashed,
-                    axisLabelVisible: true,
-                    title: 'ask',
-                });
-            }
-        }
-
-        function onL2Update(data) {
-            data.bids.forEach(([price, qty]) => {
-                if (qty == 0) delete bids[price];
-                else bids[price] = qty;
-            });
-            data.asks.forEach(([price, qty]) => {
-                if (qty == 0) delete asks[price];
-                else asks[price] = qty;
-            });
-        }
-
-        async function init() {
             const res = await fetch('/trades');
             const trades_ = await res.json();
             for (const t of trades_) onTrade(t); 
-
-            bids = {};
-            asks = {};
-            trades = [];
 
             ws = new WebSocket(`ws://${window.location.host}/ws`);
             ws.onmessage = (event) => {
@@ -229,10 +187,38 @@
                         onTrade(data);
                         break;
                     case "l1_quote":
-                        onL1Quote(data);
+                        if (bidLine) candleSeries.removePriceLine(bidLine);
+                        if (askLine) candleSeries.removePriceLine(askLine);
+                        if (data.bid_px) {
+                            bidLine = candleSeries.createPriceLine({
+                                price: parseFloat(data.bid_px),
+                                color: M_GREEN,
+                                lineWidth: 1,
+                                lineStyle: LightweightCharts.LineStyle.Dashed,
+                                axisLabelVisible: true,
+                                title: 'bid',
+                            });
+                        }
+                        if (data.ask_px) {
+                            askLine = candleSeries.createPriceLine({
+                                price: parseFloat(data.ask_px),
+                                color: M_RED,
+                                lineWidth: 1,
+                                lineStyle: LightweightCharts.LineStyle.Dashed,
+                                axisLabelVisible: true,
+                                title: 'ask',
+                            });
+                        }
                         break;
                     case "l2_update":
-                        onL2Update(data);
+                        data.bids.forEach(([price, qty]) => {
+                            if (qty == 0) delete bids[price];
+                            else bids[price] = qty;
+                        });
+                        data.asks.forEach(([price, qty]) => {
+                            if (qty == 0) delete asks[price];
+                            else asks[price] = qty;
+                        });
                         break;
                     default:
                         console.log("unknown", data.type)
@@ -240,12 +226,10 @@
             };
         }
 
-        init();
+        document.addEventListener('DOMContentLoaded', () => init());
 
         document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible' && (!ws || ws.readyState !== WebSocket.OPEN)) {
-                init();
-            }
+            if (document.visibilityState === 'visible' && (!ws || ws.readyState !== WebSocket.OPEN)) init();
         });
 
         window.addEventListener('resize', () => {
