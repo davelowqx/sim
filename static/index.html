@@ -237,6 +237,10 @@
 
         init();
 
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') init();
+        });
+
         window.addEventListener('resize', () => {
             chart.applyOptions({ 
                 width: document.getElementById('chart').clientWidth,
