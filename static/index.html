@@ -4,43 +4,142 @@
     <meta charset="UTF-8">
     <title>Simulated Exchange</title>
     <style>
-        body { background: #0d1117; margin: 0; }
+        body { background-color: #0d1117; margin: 0; }
+        #chart-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            height: 100vh;
+            box-sizing: border-box;
+        }
         #chart { width: 100%; height: 100%; }
+        @keyframes spin {
+            to { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+        #spinner-backdrop {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background-color: rgba(13, 17, 23, 0.7);
+            z-index: 9998;
+        }
+        #spinner {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 40px;
+            border: 3px solid #30363d;
+            border-top-color: #58a6ff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            z-index: 9999;
+        }
+        #restart-btn {
+            background-color: black;
+            border: 1px solid #444;
+            padding: 5px 10px;
+            font-family: monospace;
+            font-size: 13px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: border-color 0.2s, color 0.2s;
+        }
+
+        #restart-btn:hover {
+            border-color: #58a6ff;
+            color: #58a6ff;
+        }
+
+        .window {
+            font-family: monospace;
+            font-size: 13px;
+            width: 150px;
+            padding: 15px;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        #bids {
+            height: 60px;
+            overflow: hidden;
+        }
+
+        #asks {
+            height: 60px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+        }
+
+        .volume-bar {
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+        }
+
+        .ask-bar {
+            background-color: rgba(248, 81, 73, 0.15);
+        }
+
+        .bid-bar {
+            background-color: rgba(63, 185, 80, 0.15);
+        }
+
+        .line {
+            border: none;
+            border-top: 1px solid #444;
+            margin: 4px 0;
+        }
+
+        .text-white {
+            color: #e6edf3;
+        }
+
+        .text-red {
+            color: #f85149;
+        }
+
+        .text-green {
+            color: #3fb950;
+        }
+
+        .entry {
+            position:relative; 
+            display:flex; 
+            justify-content:space-between; 
+            font-size:12px; 
+            padding:2px 4px;
+        }
     </style>
 </head>
-<body>
+<body class="text-white">
+    <div id="spinner"></div>
+    <div id="spinner-backdrop"></div>
     <div style="position: fixed; top: 20px; right: 20px; z-index: 1000;">
-        <button 
-        onclick="restart()" 
-        style="background: black;
-                color: #e6edf3;
-                border: 1px solid #444;
-                padding: 5px 10px;
-                font-family: monospace;
-                font-size: 13px;
-                cursor: pointer;
-                border-radius: 4px;
-                transition: border-color 0.2s, color 0.2s;" 
-        onmouseover="this.style.borderColor='#58a6ff'; this.style.color='#58a6ff';"
-        onmouseout="this.style.borderColor='#444'; this.style.color='#e6edf3';">
-            Restart Simulation
-        </button>
+        <button class="text-white" id="restart-btn" onclick="restart()">Restart Simulation</button>
     </div>
     <div style="position: fixed; top: 20px; left: 20px; z-index: 1000;">
-        <div style="font-family: monospace; font-size: 13px; width: 150px; padding: 20px; background-color: rgba(0, 0, 0, 0.5);">
-            <div style="color: white">Orderbook</div>
-            <div id="asks" style="height: 60px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end;"></div>
-            <hr style="border: none; border-top: 1px solid #444; margin: 4px 0;">
-            <div id="bids" style="height: 60px; overflow: hidden;"></div>
+        <div class="window">
+            <div>Orderbook</div>
+            <hr class="line">
+            <div id="asks"></div>
+            <hr class="line">
+            <div id="bids"></div>
         </div>
         <br/>
-        <div style="font-family: monospace; font-size: 13px; width: 150px; padding: 20px; background-color: rgba(0, 0, 0, 0.5);">
-            <div style="color: white">Trades</div>
-            <hr style="border: none; border-top: 1px solid #444; margin: 4px 0;">
+        <div class="window">
+            <div>Trades</div>
+            <hr class="line">
             <div id="trades"></div>
         </div>
     </div>
-    <div style="display: flex; justify-content: center; align-items: center; padding: 20px; height: 100vh; box-sizing: border-box;">
+    <div id="chart-container">
         <div id="chart"></div>
     </div>
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
@@ -51,6 +150,19 @@
         const RED = "#f85149"
         const M_GREEN = "#87ceaa"
         const M_RED = "#ff8c7a"
+
+        const spinner = document.getElementById("spinner");
+        const spinnerBackdrop = document.getElementById('spinner-backdrop');
+
+        const showSpinner = () => {
+            spinner.style.display = 'block';
+            spinnerBackdrop.style.display = 'block';
+        };
+
+        const hideSpinner = () => {
+            spinner.style.display = 'none';
+            spinnerBackdrop.style.display = 'none';
+        };
 
         const chart = LightweightCharts.createChart(document.getElementById('chart'), {
             layout: { background: { color: '#0d1117' }, textColor: '#e6edf3' },
@@ -112,25 +224,27 @@
             document.getElementById('bids').innerHTML = bidPrices.map(px => {
                 if (!bids_[px]) return '';
                 const pct = Math.round(bids_[px] / maxQty * 100);
-                return `<div style="position:relative; display:flex; justify-content:space-between; font-family:monospace; font-size:12px; padding:2px 4px;">
-                    <div style="position:absolute; right:0; top:0; bottom:0; width:${pct}%; background:rgba(63,185,80,0.15);;"></div>
-                    <span style="position:relative; color:${GREEN};">${px}</span>
-                    <span style="position:relative; color:${GREEN};">${bids_[px]}</span>
-                </div>`;
+                return (`
+                <div class="text-green entry">
+                    <div class="bid-bar volume-bar" style="width:${pct}%"></div>
+                    <span>${px}</span>
+                    <span>${bids_[px]}</span>
+                </div>`);
             }).join('');
 
             document.getElementById('asks').innerHTML = askPrices.map(px => {
                 if (!asks_[px]) return '';
                 const pct = Math.round(asks_[px] / maxQty * 100);
-                return `<div style="position:relative; display:flex; justify-content:space-between; font-family:monospace; font-size:12px; padding:2px 4px;">
-                    <div style="position:absolute; right:0; top:0; bottom:0; width:${pct}%; background:rgba(248,81,73,0.15);"></div>
-                    <span style="position:relative; color:${RED};">${px}</span>
-                    <span style="position:relative; color:${RED};">${asks_[px]}</span>
-                </div>`;
+                return (`
+                <div class="text-red entry">
+                    <div class="ask-bar volume-bar" style="width:${pct}%"></div>
+                    <span>${px}</span>
+                    <span>${asks_[px]}</span>
+                </div>`);
             }).join('');
 
             document.getElementById('trades').innerHTML = trades.map(t =>
-                `<div style="display:flex; justify-content:space-between; font-family:monospace; font-size:12px; padding:2px 0; color:${t.aggressor_side === 'BUY' ? GREEN : RED};">
+                `<div class="${t.aggressor_side === 'BUY' ? 'text-green' : 'text-red'} entry">
                     <span>${t.px}</span>
                     <span>${t.qty}</span>
                 </div>`
@@ -166,6 +280,7 @@
         }
 
         async function init() {
+            showSpinner();
             candleSeries.setData([]);
             volumeSeries.setData([]);
             if (askLine) candleSeries.removePriceLine(askLine);
@@ -180,7 +295,9 @@
 
             const res = await fetch('/trades');
             const trades_ = await res.json();
-            for (const t of trades_) onTrade(t); 
+            for (const t of trades_) onTrade(t);
+
+            hideSpinner();
 
             ws = new WebSocket(`ws://${window.location.host}/ws`);
             ws.onmessage = (event) => {
